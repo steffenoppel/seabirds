@@ -637,7 +637,7 @@ stopCluster(cl)
 ## Polys must be a SpatialPolygonsDataFrame of the polygons to be counted.
 ## Res must be a numeric object indicating the resolution in decimal degrees.
 
-## Steffen Oppel revision on 14 Dec 2016 - removed + (Res * 100) from NCol
+## Steffen Oppel revision on 14 Dec 2016 - removed + (Res * 100) from NCol in L. 664
 
 ## version 1.2    05-04-2012
 
@@ -668,7 +668,7 @@ polyCount <- function(Polys, Res = 0.1)
   SpGridProj <- spTransform(SpdfGrid, CRS=DgProj)
   GridIntersects <- over(SpGridProj, Polys)
   SpGridProj@data$Intersects$ID <- GridIntersects$ID
-  SpGridProj <- SpGridProj[!is.na(SpGridProj@data$Intersects$ID),] 			###subset(SpGridProj, !is.na(SpGridProj@data$Intersects$ID))
+  SpGridProj <- subset(SpGridProj, !is.na(SpGridProj@data$Intersects$ID))   ### SpGridProj[!is.na(SpGridProj@data$Intersects$ID),] 			###
   plot(SpGridProj)
 
   Count <- 0
