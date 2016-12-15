@@ -675,15 +675,16 @@ polyCount <- function(Polys, Res = 0.1)
   for(i in 1:length(Polys))
     {
     TempB <- Polys[i,]
-    Temp <- over(SpGridProj, TempB)
+    Temp <- over(SpGridProj, TempB)[,1]     ### inserted based on Matthew Carroll's advice; MAY NEED TO SWAP arguments in 'over'?
     Temp[is.na(Temp)] <- 0
     Temp[Temp > 0] <- 1
     Count <- Count + Temp
-    Prop <- Count/i
+    #Prop <- Count/i                        ### removed to improve efficiency
     }
-  GridIntersects$inside<-as.numeric(as.character(GridIntersects$ID))
+  Prop <- Count/length(Polys)     ### removed from loop over polys as it only needs to be calculated once
+  GridIntersects$inside<-as.numeric(as.character(GridIntersects$ID))    ### this only works for numeric trip_id!!
   GridIntersects$Prop <- 0
-  GridIntersects$Prop[!is.na(GridIntersects$inside)] <- Prop[,1]
+  GridIntersects$Prop[!is.na(GridIntersects$inside)] <- Prop    #[,1] removed based on Matthew Carroll's advice, because fixed in L. 678
   SpdfGrid$Count <- 0
   SpGridVals <- SpatialPixelsDataFrame(SpGrid, data.frame(Values = GridIntersects$Prop))
   SGExtent <- extent(SpdfGrid)
