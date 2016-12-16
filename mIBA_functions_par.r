@@ -405,7 +405,7 @@ batchUD <- function(DataGroup, Scale = 50, UDLev = 50)
       p4sva <- CRS(proj4string(va90a))
       vaSP <- SpatialPolygons(va90_pla, proj4string = p4sva)
       va90b <- SpatialPolygonsDataFrame(vaSP, data = as(va90a, "data.frame"))   ### this returns an empty data frame
-      va90b@data<-Output@data                                                   ### this adds the original data back into the data frame - may not work if entire polygons are removed
+      va90b@data<-KDE.Spdf@data                                                   ### this adds the original data back into the data frame - may not work if entire polygons are removed
       
       
     return(va90b)     ## changed from KDE.Spdf to replace with cleaned version
