@@ -332,6 +332,8 @@ scaleARS <- function(DataGroup, Scales = c(seq(1, 25, 1), seq(30, 50, 5), 75, se
 ## Scale should be the smoothing factor to be used in the Kernel Density Estimation
 ## and should be provided in Km.
 ## UDLev should be the quantile to be used for the Utilisation Distribution.
+    
+## UPDATED BY STEFFEN OPPEL ON 16 Dec 2016 to fix orphaned holes in output geometry
 
 
 batchUD <- function(DataGroup, Scale = 50, UDLev = 50)
@@ -393,7 +395,20 @@ batchUD <- function(DataGroup, Scale = 50, UDLev = 50)
     KDE.Spdf <- SpatialPolygonsDataFrame(KDE.Sp, data=Tbl)
 
     plot(KDE.Spdf, border=factor(UIDs))
-    return(KDE.Spdf)
+      
+      ##### OVERLAYS IN THE polyCount FUNCTION WILL NOT WORK IF THE POLYGONS CONTAIN HOLES OR ARE ORPHANED
+      ## simple fix to remove holes from polygon object
+      va90a <- spChFIDs(KDE.Spdf, paste(KDE.Spdf$Name_0, KDE.Spdf$Name_1, KDE.Spdf$ID, sep = ""))
+      va90a <- va90a[, -(1:4)]
+      va90_pl <- slot(va90a, "polygons")
+      va90_pla <- lapply(va90_pl, checkPolygonsHoles)
+      p4sva <- CRS(proj4string(va90a))
+      vaSP <- SpatialPolygons(va90_pla, proj4string = p4sva)
+      va90b <- SpatialPolygonsDataFrame(vaSP, data = as(va90a, "data.frame"))   ### this returns an empty data frame
+      va90b@data<-Output@data                                                   ### this adds the original data back into the data frame - may not work if entire polygons are removed
+      
+      
+    return(va90b)     ## changed from KDE.Spdf to replace with cleaned version
     }
 
 
@@ -638,6 +653,7 @@ stopCluster(cl)
 ## Res must be a numeric object indicating the resolution in decimal degrees.
 
 ## Steffen Oppel revision on 14 Dec 2016 - removed + (Res * 100) from NCol in L. 664
+## Steffen Oppel revision on 16 Dec 2016: fixed the point overlay problem by using a proper grid instead
 
 ## version 1.2    05-04-2012
 
@@ -658,17 +674,23 @@ polyCount <- function(Polys, Res = 0.1)
 
   UDbbox <- bbox(Poly.Spdf)
   if(DateLine == TRUE)  {UDbbox[1,] <- c(-180,180)}
-  BL <- floor(UDbbox[,1]) + (Res/2)
+  BL <- floor(UDbbox[,1])                 # + (Res/2) - removed on 16 Dec 2016 because it results in some polygons outside the grid
   TR <- ceiling(UDbbox[,2])
   NRow <- ceiling(sqrt((BL[1] - TR[1])^2)/Res)
   NCol <- ceiling(sqrt((BL[2] - TR[2])^2)/Res) #+ (Res * 100)				### THIS LINE CAUSES PROBLEMS BECAUSE IT GENERATES LATITUDES >90 which will cause spTransform to fail
   Grid <- GridTopology(BL, c(Res,Res), c(NRow, NCol))
+    newgrid<-SpatialGrid(Grid, proj4string = CRS("+proj=longlat + datum=wgs84"))
+    spol <- as(newgrid, "SpatialPolygons")								### this seems to create an orphaned hole
+    SpGridProj <- spTransform(spol, CRS=DgProj)
+    GridIntersects <- over(SpGridProj, Polys)
+    SpGridProj<- SpatialPolygonsDataFrame(SpGridProj, data = data.frame(ID=GridIntersects$ID, row.names=sapply(SpGridProj@polygons,function(x) x@ID)))
+    SpGridProj <- subset(SpGridProj, !is.na(SpGridProj@data$ID))
   SpGrid <- SpatialPoints(Grid, proj4string = CRS("+proj=longlat + datum=wgs84"))
   SpdfGrid <- SpatialPointsDataFrame(SpGrid, data.frame(Longitude=SpGrid@coords[,1], Latitude=SpGrid@coords[,2]))
-  SpGridProj <- spTransform(SpdfGrid, CRS=DgProj)
-  GridIntersects <- over(SpGridProj, Polys)
-  SpGridProj@data$Intersects$ID <- GridIntersects$ID
-  SpGridProj <- subset(SpGridProj, !is.na(SpGridProj@data$Intersects$ID))   ### SpGridProj[!is.na(SpGridProj@data$Intersects$ID),] 			###
+  #SpGridProj <- spTransform(SpdfGrid, CRS=DgProj)
+  #GridIntersects <- over(SpGridProj, Polys)
+  #SpGridProj@data$Intersects$ID <- GridIntersects$ID
+  #SpGridProj <- subset(SpGridProj, !is.na(SpGridProj@data$Intersects$ID))   ### SpGridProj[!is.na(SpGridProj@data$Intersects$ID),] 			###
   plot(SpGridProj)
 
   Count <- 0
