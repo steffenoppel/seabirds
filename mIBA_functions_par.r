@@ -40,7 +40,7 @@ tripSplit <- function(Track, Colony, InnerBuff = 15, ReturnBuff = 45, Duration =
 
   if(class(Track) != "SpatialPointsDataFrame")
     {
-    Track.Wgs <- SpatialPoints(data.frame(Track$Longitude, Track$Latitude), proj4string=CRS("+proj=longlat + datum=wgs84"))
+    Track.Wgs <- SpatialPoints(data.frame(Track$Longitude, Track$Latitude), proj4string=CRS("+proj=longlat + datum=WGS84"))
     Track.Projected <- spTransform(Track.Wgs, CRS=CRS(paste("+proj=laea +lon_0=", Colony$Longitude, " +lat_0=", Colony$Latitude, sep="")))
     Track <- SpatialPointsDataFrame(Track.Projected, data = Track)
     }
@@ -49,19 +49,19 @@ tripSplit <- function(Track, Colony, InnerBuff = 15, ReturnBuff = 45, Duration =
 if(nests == TRUE)
     {  if(!"ID" %in% names(Colony)) stop("Colony missing ID field")
     nest<- Colony[match(unique(Track$ID), Colony$ID),]
-    Colony.Wgs <- SpatialPoints(data.frame(nest$Longitude, nest$Latitude), proj4string=CRS("+proj=longlat + datum=wgs84"))
+    Colony.Wgs <- SpatialPoints(data.frame(nest$Longitude, nest$Latitude), proj4string=CRS("+proj=longlat + datum=WGS84"))
     usedCRS<-CRS(proj4string(Track))
     Colony.Projected <- spTransform(Colony.Wgs, CRS=usedCRS)
 } else{
 
 if(MidPoint == FALSE)
     {
-    Colony.Wgs <- SpatialPoints(data.frame(Colony$Longitude, Colony$Latitude), proj4string=CRS("+proj=longlat + datum=wgs84"))
+    Colony.Wgs <- SpatialPoints(data.frame(Colony$Longitude, Colony$Latitude), proj4string=CRS("+proj=longlat + datum=WGS84"))
     Colony.Projected <- spTransform(Colony.Wgs, CRS=CRS(paste("+proj=laea +lon_0=", Colony$Longitude, " +lat_0=", Colony$Latitude, sep="")))
     } else
     {
    mid_point<-data.frame(centroid(cbind(DataGroup$Longitude, DataGroup$Latitude)))
-    Colony.Wgs <- SpatialPoints(data.frame(Colony$Longitude, Colony$Latitude), proj4string=CRS("+proj=longlat + datum=wgs84"))
+    Colony.Wgs <- SpatialPoints(data.frame(Colony$Longitude, Colony$Latitude), proj4string=CRS("+proj=longlat + datum=WGS84"))
     Colony.Projected <- spTransform(Colony.Wgs, CRS=CRS(paste("+proj=laea +lon_0=", mid_point$lon, " +lat_0=", mid_point$lat, sep="")))
     Track <- spTransform(Track, CRS=CRS(paste("+proj=laea +lon_0=", mid_point$lon, " +lat_0=", mid_point$lat, sep="")))### Transform DataGroup too.
         }
