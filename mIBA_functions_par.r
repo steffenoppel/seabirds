@@ -685,8 +685,8 @@ polyCount <- function(Polys, Res = 0.1)
     GridIntersects <- over(SpGridProj, Polys)
     SpGridProj<- SpatialPolygonsDataFrame(SpGridProj, data = data.frame(ID=GridIntersects$ID, row.names=sapply(SpGridProj@polygons,function(x) x@ID)))
     SpGridProj <- subset(SpGridProj, !is.na(SpGridProj@data$ID))
-  SpGrid <- SpatialPoints(Grid, proj4string = CRS("+proj=longlat + datum=wgs84"))
-  SpdfGrid <- SpatialPointsDataFrame(SpGrid, data.frame(Longitude=SpGrid@coords[,1], Latitude=SpGrid@coords[,2]))
+  #SpGrid <- SpatialPoints(Grid, proj4string = CRS("+proj=longlat + datum=wgs84"))
+  #SpdfGrid <- SpatialPointsDataFrame(SpGrid, data.frame(Longitude=SpGrid@coords[,1], Latitude=SpGrid@coords[,2]))
   #SpGridProj <- spTransform(SpdfGrid, CRS=DgProj)
   #GridIntersects <- over(SpGridProj, Polys)
   #SpGridProj@data$Intersects$ID <- GridIntersects$ID
@@ -704,14 +704,13 @@ polyCount <- function(Polys, Res = 0.1)
     #Prop <- Count/i                        ### removed to improve efficiency
     }
   Prop <- Count/length(Polys)     ### removed from loop over polys as it only needs to be calculated once
-  GridIntersects$inside<-as.numeric(as.character(GridIntersects$ID))    ### this only works for numeric trip_id!!
-  GridIntersects$Prop <- 0
-  GridIntersects$Prop[!is.na(GridIntersects$inside)] <- Prop    #[,1] removed based on Matthew Carroll's advice, because fixed in L. 678
-  SpdfGrid$Count <- 0
-  SpGridVals <- SpatialPixelsDataFrame(SpGrid, data.frame(Values = GridIntersects$Prop))
-  SGExtent <- extent(SpdfGrid)
+  #GridIntersects$inside<-as.numeric(as.character(GridIntersects$ID))    ### this only works for numeric trip_id!!
+  #GridIntersects$Prop <- 0
+  #GridIntersects$Prop[!is.na(GridIntersects$inside)] <- Prop    #[,1] removed based on Matthew Carroll's advice, because fixed in L. 678
+  SpGridProj@data$Prop <- Prop
+  SGExtent <- extent(SpGridProj)
   RT <- raster(SGExtent, as.double(NCol), as.double(NRow))
-  WgsRas <- (rasterize(x=SpGridVals, y=RT, field = "Values"))
+  WgsRas <- (rasterize(x=SpGridProj,y=RT, field = "Prop"))
 
   plot(WgsRas, asp=1)
   map("world", add=T, fill=T, col="darkolivegreen3")
