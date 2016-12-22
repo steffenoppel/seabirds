@@ -8,7 +8,10 @@
 ## added function to remove duplicate time values on 14 Dec 2016
 ## initial phase to explore approaches
 
-## NEED TO DO: parallelise sc loop, create automated selection of TripSplit values for species/tag combinations
+## v2 on 16 Dec 2016 includes major update/fix of marine IBA scripts for polyCount and batchUD - see marineIBA_function_fixes.r for attempts
+## 20 Dec 2016: fixed projection problem by changing wgs84 to WGS84; FIXED polyCount function and NA problem in Morisita input values
+
+## NEED TO DO: CHECK SAMPLE SIZE CORRECTION FOR INDEX!! CHECK INDEX SENSITIVITY TO TRIP BUFFER FOR ALBATROSS
 
 
 
@@ -43,7 +46,7 @@ require(foreign)
 require(maptools)
 require(geosphere)
 require(sp)
-require(rgdal)
+library(rgdal)
 require(rgeos)
 library(raster)
 library(trip)
@@ -51,9 +54,11 @@ library(rworldmap)
 library(plyr)
 library(vegan)
 library(parallel)
+library(doParallel)
 library(foreach)
 library(adehabitatLT)
 data(countriesLow)
+library(inflection)
 
 
 #source("S:\\ConSci\\DptShare\\SteffenOppel\\RSPB\\Statistics\\northarrow.r")
@@ -92,7 +97,7 @@ alldat$DateTime <- as.POSIXct(strptime(alldat$Loctime, "%Y-%m-%d %H:%M:%S"), "GM
 alldat$TrackTime <- as.double(alldat$DateTime)
 names(alldat)
 
-alldat<-alldat[,c(1,3,4,6:10,12:14,19,18,24:25)]
+alldat<-alldat[,c(1,2,4,6:10,12:14,19,18,24:25)]
 names(alldat)[c(8,13:12)]<-c('ID','Latitude','Longitude')
 head(alldat)
 
@@ -123,25 +128,47 @@ plot(countriesLow, col='darkgrey', add=T)
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ### Create Overview table and assign data groups of equal species, site,age, and life history stage:
-overview <- ddply(alldat, c("common_name","site_name","age","breed_stage"), summarise,n_individuals=length(unique(bird_id)), n_tracks=length(unique(ID)))
+overview <- ddply(alldat, c("scientific_name","site_name","age","breed_stage"), summarise,n_individuals=length(unique(bird_id)), n_tracks=length(unique(ID)))
 overview$DataGroup<-seq(1:dim(overview)[1])
-alldat<-merge(alldat,overview[,c(1:4,7)],by=c("common_name","site_name","age","breed_stage"), all.x=T)
+alldat<-merge(alldat,overview[,c(1:4,7)],by=c("scientific_name","site_name","age","breed_stage"), all.x=T)
 
 
 ### CREATE SPATIAL SCALES FOR ANALYSIS
 ### order not ascending so that parallel loop will not calculate the most demanding subsets simultaneously
 spatscales<-exp(seq(0,9.5,0.5))			## on log scale
-spatscales<-c(0.5,1,1.5,2.5,5,7.5,10,12.5,15,17.5,20,25,30,40,50,75,100,150,250,500,1000,1500,2500,5000,10000)			## in km
-spatscales<-c(1,500,1000,1500,2.5,75,100,250,5,10,15,20,50)			## in km
+spatscales<-c(2.5,500,1000,1500,5,100,150,250,7.5,10,12.5,15,17.5,20,25,30,40,50,75)			## in km
+#spatscales<-c(500,30,1000,1500,40,75,100,250,5,10,15,20,50)			## in km
 spatscales<-spatscales/100			### roughly in decimal degrees, as required for the polyCount function
 
 
 ### Create Table that includes one line for each DataGroup at each spatial scale
 ### THIS WILL NEED A MANUAL ADJUSTMENT FOR THE TripSPlit function
 
-out<-expand.grid(overview$DataGroup,spatscales)			### sets up the lines for which we need to calculate Morisita's I
-names(out)<-c("DataGroup","Scale")
-OUTPUT<-data.frame()							### set up blank frame to write output from parallelised loop
+outI<-expand.grid(overview$DataGroup,spatscales)			### sets up the lines for which we need to calculate Morisita's I
+names(outI)<-c("DataGroup","Scale")
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# COMBINE OVERVIEW TABLE WITH FAMILY INFO AND SET TRIP SPLIT PARAMETERS
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+setwd("A://RSPB/Marine/GlobalSeabirdDistribution")
+setwd("C:\\STEFFEN\\RSPB\\Marine\\GlobalSeabirdDistribution")
+species_list<-read.table("SeabirdRangeMaps_SpeciesList.csv", header=T, sep=',')
+species_list$GISname<-paste(substr(species_list$Family,1,3), species_list$SpcRecID, sep='')
+head(species_list)
+head(overview)
+
+overview$Family<-species_list$Family[match(overview$scientific_name, species_list$Scientific_name)]
+overview$Seabird_type<-species_list$Seabird_type[match(overview$scientific_name, species_list$Scientific_name)]
+overview$device<-alldat$device[match(overview$scientific_name, alldat$scientific_name)]
+
+overview$InnerBuff<-ifelse(overview$device=="PTT",10,ifelse(overview$Seabird_type=="Pelagic seabird", 5,0.5))
+overview$ReturnBuff<-ifelse(overview$device=="PTT",50,ifelse(overview$Seabird_type=="Pelagic seabird", 50,5))
+overview$Duration<-ifelse(overview$device=="PTT",10,ifelse(overview$Seabird_type=="Pelagic seabird", 5,1))
+
+
 
 
 
@@ -150,9 +177,274 @@ OUTPUT<-data.frame()							### set up blank frame to write output from paralleli
 # START LOOP OVER EACH DATA GROUP
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+OUTPUT<-data.frame()							### set up blank frame to write output from parallelised loop
+SUMMARY<-data.frame()							### set up blank frame to write output from parallelised loop
 
 
 for (dg in 1:max(overview$DataGroup)){
+
+
+#### SELECT DATA FOR ANALYSIS AND ORDER BY TIME AND REMOVE DUPLICATE TIME STAMPS ##########################
+tracks<-alldat[alldat$DataGroup==dg,]
+tracks<-tracks[order(tracks$ID, tracks$TrackTime),]
+tracks$TrackTime<-adjust.duplicateTimes(tracks$TrackTime, tracks$ID)
+
+
+
+
+windows(600,400)
+plot(Latitude~Longitude, data=tracks, pch=16, cex=0.3,asp=1, col=tracks$ID)
+plot(countriesLow, col='red', add=T)
+
+
+
+#### CREATE COLONY LOCATION AND APPROPRIATE COORDINATE REFERENCE SYSTEM FOR PROJECTION ##########################
+loc<-aggregate(lat_colony~ID, data=tracks, FUN=mean)		## Colony location is mean of all nest locations
+loc$lon_colony<-aggregate(lon_colony~ID, data=tracks, FUN=mean)[,2]
+names(loc)[2:3]<-c('Latitude','Longitude')
+
+
+
+
+
+#### IF SPARSE DATA (PTT)THEN INTERPOLATE TO EVERY 1 HR 
+if(tracks$device[1]=="PTT"){
+traj <- as.ltraj(xy=data.frame(tracks$Longitude, tracks$Latitude), date=as.POSIXct(tracks$TrackTime, origin="1970/01/01", tz="GMT"), id=tracks$ID, typeII = TRUE)
+
+## Rediscretization every 3600 seconds
+tr <- redisltraj(traj, 3600, type="time")
+
+## Convert output into a data frame
+tracks.intpol<-data.frame()
+for (l in 1:length(unique(tracks$ID))){
+out<-tr[[l]]
+out$MID<-as.character(attributes(tr[[l]])[4])				#### extracts the MigID from the attribute 'id'
+tracks.intpol<-rbind(tracks.intpol,out)				#### combines all data
+}
+
+### re-insert year and season
+
+tracks.intpol$age<-tracks$age[match(tracks.intpol$MID,tracks$ID)]
+tracks.intpol$bird_id<-tracks$bird_id[match(tracks.intpol$MID,tracks$ID)]
+tracks.intpol$sex<-tracks$sex[match(tracks.intpol$MID,tracks$ID)]
+tracks.intpol$TrackTime <- as.double(tracks.intpol$date)
+
+## recreate data frame 'tracks' that is compatible with original data
+tracks<-data.frame(scientific_name=tracks$scientific_name[1],
+		site_name=tracks$site_name[1],
+		age=tracks.intpol$age,
+		breed_stage=tracks$breed_stage[1],
+		dataset_id=tracks$dataset_id[1],
+		device="PTT",
+		bird_id=tracks.intpol$bird_id,
+		ID=tracks.intpol$MID,
+		sex=tracks.intpol$sex,
+		Longitude=tracks.intpol$x,
+		Latitude=tracks.intpol$y,
+		DateTime=tracks.intpol$date,
+		TrackTime=tracks.intpol$TrackTime,
+		DataGroup=dg)
+		
+
+tracks<-tracks[order(tracks$ID, tracks$TrackTime),]
+tracks$TrackTime<-adjust.duplicateTimes(tracks$TrackTime, tracks$ID)
+
+}			## close IF loop for PTT tracks
+
+
+
+### PROJECT COORDINATES FOR SPATIAL ANALYSES - this now needs WGS84 in CAPITAL LETTERS (not wgs84 anymore!!)
+### SpatialPointsDataFrame cannot contain POSIXlt data type!
+
+DataGroup.Wgs <- SpatialPoints(data.frame(tracks$Longitude, tracks$Latitude), proj4string=CRS("+proj=longlat +datum=WGS84"))
+input <- SpatialPointsDataFrame(SpatialPoints(data.frame(tracks$Longitude, tracks$Latitude), proj4string=CRS("+proj=longlat +datum=WGS84")), data = tracks, match.ID=F)
+DgProj <- CRS(paste("+proj=laea +lon_0=", loc$Longitude, " +lat_0=", loc$Latitude, sep=""))
+DataGroup.Projected <- spTransform(input, CRS=DgProj)
+input <- DataGroup.Projected
+localmap<-spTransform(countriesLow, CRS=DgProj) 
+
+
+
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# SPLIT INTO FORAGING TRIPS
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+Trips <- NULL
+
+
+for(i in 1:length(unique(tracks$ID)))
+  {
+  	Temp <- subset(input, ID == unique(tracks$ID)[i])
+	Trip <- tripSplit(Track=Temp, Colony=loc[loc$ID==unique(tracks$ID)[i],2:3], InnerBuff=overview$InnerBuff[overview$DataGroup==dg], ReturnBuff=overview$ReturnBuff[overview$DataGroup==dg], Duration = overview$Duration[overview$DataGroup==dg], plotit=T, nests=F)
+  	if(i == 1) {Trips <- Trip} else
+  	Trips <- spRbind(Trips,Trip)
+  }
+
+#str(Trips)
+dim(Trips)
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# CALCULATE SCALE FOR AREA RESTRICTED SEARCH
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+DataGroup <- Trips
+head(Trips@data)
+#ScaleOut <- scaleARS(DataGroup[DataGroup@data$trip_id!="-1",], Scales = c(seq(0, 50, 0.5)), Peak="Flexible")
+# consider replacing this with 10 km uniformly across all species to keep results consistent?
+ScaleOut <- 20
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# DELINEATE CORE AREAS (KERNEL DENSITY ESTIMATOR - 50% Utilisation Distribution)
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+UD<-50		## pick the % utilisation distribution (50%, 95% etc.)
+Output <- batchUD(DataGroup[DataGroup@data$trip_id!="-1",], Scale = ScaleOut/2, UDLev = UD)
+plot(localmap, col='darkolivegreen3', add=T)
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# START LOOP OVER EACH SPATIAL SCALE
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+#setup parallel backend to use 4 processors
+cl<-makeCluster(8)
+registerDoParallel(cl)
+
+
+outMorisita<-foreach(sc=spatscales,.combine=rbind, .packages=c("vegan","sp","rgdal")) %dopar% {
+#outMorisita<-data.frame()
+#for (sc in spatscales){
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# COUNTING THE POLYGONS
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+source("S:\\ConSci\\DptShare\\SteffenOppel\\RSPB\\Marine\\IBA\\Analysis\\mIBA_functions_upd2016.r")
+ASI<-polyCount(Output, Res = sc)				### resolution in decimal degrees
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# CREATE DATA FRAME FOR MORISITA SPATIAL INDEX FROM polyCount output
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+temp<-outI[outI$DataGroup==dg & outI$Scale==sc,]
+nind<-length(unique(DataGroup$ID[DataGroup@data$trip_id!="-1"]))
+morisinp<-ASI@data@values
+morisinp[is.na(morisinp)]<-0
+index<- as.numeric(dispindmorisita(morisinp*nind))
+temp$Morisita<- index[1]
+temp$mclu<- index[2]
+temp$muni<- index[3]
+temp$imst<- index[4]
+temp$pchisq<- index[5]
+return(temp)
+#outMorisita<-rbind(outMorisita,temp)
+} ### end loop over spatial scales
+stopCluster(cl)
+OUTPUT<-rbind(OUTPUT,outMorisita)
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# CALCULATE INFLECTION POINT AND ASYMPTOTE FOR DATA SET
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Morisummary<-data.frame(DataGroup=dg,inflection=0,asymptote=0)
+EDE<-bede(outMorisita$Scale,outMorisita$Morisita,0)
+asymp<-bese(outMorisita$Scale,outMorisita$Morisita,1)
+Morisummary$inflection<-EDE$iters$EDE[1]
+Morisummary$asymptote<-asymp$iters$ESE
+SUMMARY<-rbind(SUMMARY,Morisummary)
+
+} ### end loop over species 
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# IDENTIFYING THE SPATIAL SCALE SLOPE ACROSS ALL DATA
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+### identify inflection point for single data group
+#EDE<-bede(outMorisita$Scale,outMorisita$Morisita,0)
+#asymp<-bese(outMorisita$Scale,outMorisita$Morisita,1)
+#plot(Morisita~Scale,outMorisita)
+#abline(v=EDE$iters$EDE)
+#abline(v=asymp$iters$ESE)
+
+
+
+
+
+### loop over each data group ###
+overview$slope<-0
+overview$p<-0
+overview$maxMorisita<-0
+smallOUT<-OUTPUT[OUTPUT$Scale<6,]
+
+for (dg in overview$DataGroup){
+x<-smallOUT[smallOUT$DataGroup==dg,]
+m1<-summary(lm(Morisita~log(Scale*100), data=x))
+overview$slope[overview$DataGroup==dg]<-m1$coefficients[2,1]
+overview$p[overview$DataGroup==dg]<-m1$coefficients[2,4]
+overview$maxMorisita[overview$DataGroup==dg]<-max(x$Morisita)
+}
+
+
+### SORT SPECIES BY SLOPE
+
+overview<-overview[order(overview$slope, decreasing=F),]
+overview$scientific_name
+
+
+
+
+### for overall results
+OUTPUT$Species<-overview$scientific_name[match(OUTPUT$DataGroup,overview$DataGroup)]
+
+ggplot(OUTPUT, aes(x=log(Scale*100), y=imst), size=2)+
+geom_smooth(fill="lightblue", size=1.5)+facet_wrap("DataGroup", ncol=4)+
+  geom_point(colour="black", size=2.5) +
+  xlab("Spatial scale (km)") +
+  ylab("Morisita aggregation index") +
+  theme(panel.background=element_rect(fill="white", colour="black"), 
+        axis.text=element_text(size=18, color="black"), 
+        axis.title=element_text(size=20), 
+        strip.text.x=element_text(size=18, color="black"), 
+        strip.background=element_rect(fill="white", colour="black"), 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.border = element_blank(), 
+        panel.background = element_blank())
+
+
+
+
+
+
+
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# APPROACH #2: START LOOP OVER EACH DATA GROUP AND USE TripGrid to calculate spatial aggregation index
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+library(trip)
+OUTPUT<-data.frame()							### set up blank frame to write output from parallelised loop
+SUMMARY<-data.frame()							### set up blank frame to write output from parallelised loop
+
+
+for (dg in 1:max(overview$DataGroup)){
+
 
 
 
@@ -202,7 +494,7 @@ tracks.intpol$sex<-tracks$sex[match(tracks.intpol$MID,tracks$ID)]
 tracks.intpol$TrackTime <- as.double(tracks.intpol$date)
 
 ## recreate data frame 'tracks' that is compatible with original data
-tracks<-data.frame(common_name=tracks$common_name[1],
+tracks<-data.frame(scientific_name=tracks$scientific_name[1],
 		site_name=tracks$site_name[1],
 		age=tracks.intpol$age,
 		breed_stage=tracks$breed_stage[1],
@@ -225,13 +517,14 @@ tracks$TrackTime<-adjust.duplicateTimes(tracks$TrackTime, tracks$ID)
 
 
 
-### PROJECT COORDINATES FOR SPATIAL ANALYSES
+### PROJECT COORDINATES FOR SPATIAL ANALYSES - this now needs WGS84 in CAPITAL LETTERS (not wgs84 anymore!!)
 ### SpatialPointsDataFrame cannot contain POSIXlt data type!
 
-DataGroup.Wgs <- SpatialPoints(data.frame(tracks$Longitude, tracks$Latitude), proj4string=CRS("+proj=longlat + datum=wgs84"))
+DataGroup.Wgs <- SpatialPoints(data.frame(tracks$Longitude, tracks$Latitude), proj4string=CRS("+proj=longlat +datum=WGS84"))
+input <- SpatialPointsDataFrame(SpatialPoints(data.frame(tracks$Longitude, tracks$Latitude), proj4string=CRS("+proj=longlat +datum=WGS84")), data = tracks, match.ID=F)
 DgProj <- CRS(paste("+proj=laea +lon_0=", loc$Longitude, " +lat_0=", loc$Latitude, sep=""))
-DataGroup.Projected <- spTransform(DataGroup.Wgs, CRS=DgProj)
-input <- SpatialPointsDataFrame(DataGroup.Projected, data = tracks)
+DataGroup.Projected <- spTransform(input, CRS=DgProj)
+input <- DataGroup.Projected
 localmap<-spTransform(countriesLow, CRS=DgProj) 
 
 
@@ -241,290 +534,12 @@ localmap<-spTransform(countriesLow, CRS=DgProj)
 
 
 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# SPLIT INTO FORAGING TRIPS
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
-Trips <- NULL
 
-
-for(i in 1:length(unique(tracks$ID)))
-  {
-  	Temp <- subset(input, ID == unique(tracks$ID)[i])
-	Trip <- tripSplit(Track=Temp, Colony=loc[loc$ID==unique(tracks$ID)[i],2:3], InnerBuff=5, ReturnBuff=50, Duration = 5, plotit=T, nests=F)
-  	if(i == 1) {Trips <- Trip} else
-  	Trips <- spRbind(Trips,Trip)
-  }
-
-#str(Trips)
-dim(Trips)
-
-
-
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# CALCULATE SCALE FOR AREA RESTRICTED SEARCH
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-DataGroup <- Trips
-head(Trips@data)
-#ScaleOut <- scaleARS(DataGroup[DataGroup@data$trip_id!="-1",], Scales = c(seq(0, 50, 0.5)), Peak="Flexible")
-# consider replacing this with 10 km uniformly across all species to keep results consistent?
-ScaleOut <- 20
-
-
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# DELINEATE CORE AREAS (KERNEL DENSITY ESTIMATOR - 50% Utilisation Distribution)
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-UD<-50		## pick the % utilisation distribution (50%, 95% etc.)
-Output <- batchUD(DataGroup[DataGroup@data$trip_id!="-1",], Scale = ScaleOut/2, UDLev = UD)
-plot(localmap, col='darkolivegreen3', add=T)
-
-
-
-
-
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# START LOOP OVER EACH SPATIAL SCALE
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-
-#setup parallel backend to use 4 processors
-cl<-makeCluster(8)
-registerDoParallel(cl)
-
-
-outMorisita<-foreach(sc=spatscales,.combine=rbind, .packages=c("vegan","sp","rgdal")) %dopar% {
-#outMorisita<-data.frame()
-#for (sc in spatscales){
-
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# COUNTING THE POLYGONS
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-source("S:\\ConSci\\DptShare\\SteffenOppel\\RSPB\\Marine\\IBA\\Analysis\\mIBA_functions_upd2016.r")
-ASI<-polyCount(Output, Res = sc)				### resolution in decimal degrees
-
-
-
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# CREATE DATA FRAME FOR MORISITA SPATIAL INDEX FROM polyCount output
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-temp<-out[out$DataGroup==dg & out$Scale==sc,]
-nind<-length(unique(DataGroup$ID[DataGroup@data$trip_id!="-1"]))
-index<- as.numeric(dispindmorisita(ASI@data@values*nind))
-temp$Morisita<- index[1]
-temp$mclu<- index[2]
-temp$muni<- index[3]
-temp$imst<- index[4]
-temp$pchisq<- index[5]
-#row.names(temp)<-c()
-#row.names(outMorisita)<-NULL
-return(temp)
-outMorisita<-rbind(outMorisita,temp)
-} ### end loop over spatial scales
-stopCluster(cl)
-
-
-OUTPUT<-rbind(OUTPUT,out$Morisita)
-
-
-} ### end loop over species 
-
-
-
-
-
-sys.time()
-system.time()
-
-
-
-
-
-
-
-######################### FIXING THE POLY COUNT FUNCTION ##################################################################################################
-
-### MAJOR ISSUES WITH ORPHANED HOLES IN kernelUD output
-
-
-
-
-### TRYING TO CLEAN ORPHANED HOLES ####
-
-Polys=Output
-Res=3
-
-  # clean geometry of polygons - might be better to insert into batchUD function!?
-
-report <- clgeo_CollectionReport(Polys)
-summary <- clgeo_SummaryReport(report)
-issues <- report[report$valid == FALSE,]
-if(dim(issues)[1]>0){print(paste("NOTE - there is a geometry problem:",issues$error_msg, sep=" "))}
-
-#get suspicious features (indexes)
-nv <- clgeo_SuspiciousFeatures(report)
-mysp <- Polys[nv[-14],]
-
-#try to clean data
-mysp.clean <- clgeo_Clean(mysp)
-
-#check if they are still errors
-report.clean <- clgeo_CollectionReport(mysp.clean)
-summary.clean <- clgeo_SummaryReport(report.clean)
-
-dim(Polys)
-dim(mysp.clean)			### WORKS BUT REMOVES A LOT PF POLYGONS
-
-
-###### try different approach #
-
-outerRings = Filter(function(f){f@ringDir==1},Polys@polygons[[1]]@Polygons)
-outerBounds = SpatialPolygons(list(Polygons(outerRings,ID=1)))
-plot(outerBounds)
-
-
-clean.Polys<-SpatialPolygonsDataFrame()
-  for(i in 1:length(Polys))
-    {
-outerRings = Filter(function(f){f@ringDir==1},Polys@polygons[[i]]@Polygons)
-
-	outerBounds = SpatialPolygons(list(Polygons(outerRings,ID=i)))
-	outerBounds = SpatialPolygonsDataFrame(outerBounds, data = as(outerBounds, "data.frame"))
-	if(i==1){clean.Polys<-outerBounds}
-	clean.Polys<-spRbind(clean.Polys,outerBounds)
-	}
-plot(outerBounds)
-
-### fails at re-combining the polygons
-
-
-
-#### third approach #####
-
-
-va90a <- spChFIDs(Output, paste(Output$Name_0, Output$Name_1, Output$ID, sep = ""))
-va90a <- va90a[, -(1:4)]
-va90_pl <- slot(va90a, "polygons")
-va90_pla <- lapply(va90_pl, checkPolygonsHoles)
-p4sva <- CRS(proj4string(va90a))
-vaSP <- SpatialPolygons(va90_pla, proj4string = p4sva)
-va90b <- SpatialPolygonsDataFrame(vaSP, data = as(va90a, "data.frame"))
-va90b@data<-Output@data
-
-Polys<-va90b
-
-##########
-
-
-polyCount <- function(Polys, Res = 0.1)
-  {
-
-  require(raster)
-  require(maps)
-  require(cleangeo)
-
-  if(!class(Polys) %in% c("SpatialPolygonsDataFrame", "SpatialPolygons")) stop("Polys must be a SpatialPolygonsDataFrame")
-  if(is.na(projection(Polys))) stop("Polys must be projected")
-
-
-Polys<-mysp.clean 
-
-
-  Poly.Spdf <- spTransform(Polys, CRS=CRS("+proj=longlat +ellps=WGS84"))
-  DgProj <- Polys@proj4string
-
-  DateLine <- Poly.Spdf@bbox[1,1] < -178 & Poly.Spdf@bbox[1,2] > 178
-  if(DateLine == TRUE) {print("Data crosses DateLine")}
-
-  UDbbox <- bbox(Poly.Spdf)
-  if(DateLine == TRUE)  {UDbbox[1,] <- c(-180,180)}
-  BL <- floor(UDbbox[,1])
-  TR <- ceiling(UDbbox[,2])
-  NRow <- ceiling(sqrt((BL[1] - TR[1])^2)/Res)
-  NCol <- ceiling(sqrt((BL[2] - TR[2])^2)/Res) #+ (Res * 100)				### THIS LINE CAUSES PROBLEMS BECAUSE IT GENERATES LATITUDES >90 which will cause spTransform to fail
-  Grid <- GridTopology(BL, c(Res,Res), c(NRow, NCol))
-newgrid<-SpatialGrid(Grid, proj4string = CRS("+proj=longlat + datum=wgs84"))
-spol <- as(newgrid, "SpatialPolygons")								### this seems to create an orphaned hole
-SpGridProj <- spTransform(spol, CRS=DgProj)
-GridIntersects <- over(SpGridProj, Polys)
-
-SpGridProj<- SpatialPolygonsDataFrame(SpGridProj, data = data.frame(ID=GridIntersects$ID, row.names=sapply(SpGridProj@polygons,function(x) x@ID)))
-#  SpGridProj@data$Intersects$ID <- GridIntersects$ID
-SpGridProj <- subset(SpGridProj, !is.na(SpGridProj@data$ID))   ### SpGridProj[!is.na(SpGridProj@data$Intersects$ID),] 			###
-
-plot(SpGridProj)
-plot(Polys, add=T)
-plot(localmap, col='darkolivegreen3', add=T)
-
-
-  Count <- 0
-  for(i in 1:length(Polys))
-    {
-    TempB <- Polys[i,]
-    Temp <- over(SpGridProj,TempB)[,1]
-    Temp[is.na(Temp)] <- 0
-    Temp[Temp > 0] <- 1
-    Count <- Count + Temp
-    #Prop <- Count/i
-    }
-  Prop <- Count/length(Polys) ### removed from loop over polys as it only needs to be calculated once
-  GridIntersects$inside<-as.numeric(as.character(GridIntersects$ID))
-  GridIntersects$Prop <- 0
-  GridIntersects$Prop[!is.na(GridIntersects$inside)] <- Prop	#[,1]
-
-
-  SpGrid <- SpatialPoints(Grid, proj4string = CRS("+proj=longlat + datum=wgs84"))
-  SpdfGrid <- SpatialPointsDataFrame(SpGrid, data.frame(Longitude=SpGrid@coords[,1], Latitude=SpGrid@coords[,2]))
-  SpdfGrid$Count <- 0
-  SpGridVals <- SpatialPixelsDataFrame(SpGrid, data.frame(Values = GridIntersects$Prop))
-  SGExtent <- extent(SpdfGrid)
-  RT <- raster(SGExtent, as.double(NCol), as.double(NRow))
-  WgsRas <- (rasterize(x=SpGridVals, y=RT, field = "Values"))
-
-  plot(WgsRas, asp=1)
-  map("world", add=T, fill=T, col="darkolivegreen3")
-  projection(WgsRas) <- CRS("+proj=longlat + datum=wgs84")
-
-  SpGridVals <- SpatialPixelsDataFrame(SpGrid, data.frame(Values = GridIntersects$Prop))
-  SGExtent <- extent(SpdfGrid)
-  RT <- raster(SGExtent, as.double(NCol), as.double(NRow))
-  WgsRas <- (rasterize(x=SpGridVals, y=RT, field = "Values"))
-
-  plot(WgsRas, asp=1)
-  map("world", add=T, fill=T, col="darkolivegreen3")
-  projection(WgsRas) <- CRS("+proj=longlat + datum=wgs84")
-  return(WgsRas)
-  }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# USE TripGrid to calculate spatial aggregation index
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-### will need interpolation?
-
-library(trip)
 #### SET THE BOUNDING BOX
-long<-bbox(Trips)[1,]	### 20.360492 is westernmost nest, 44.9 is east of Yemen/Djibouti crossing
-lat<-bbox(Trips)[2,]	### 11.5 is Djibouti cut-off for migration, 43.69655 is northern most EGVU nest
+long<-bbox(input)[1,]	### 20.360492 is westernmost nest, 44.9 is east of Yemen/Djibouti crossing
+lat<-bbox(input)[2,]	### 11.5 is Djibouti cut-off for migration, 43.69655 is northern most EGVU nest
 boundbox<-matrix(c(long,lat), ncol=2, byrow=F)
 
 
@@ -533,10 +548,8 @@ grd<-makeGridTopology(boundbox, cellsize = c(10,10), adjust2longlat = F)			### C
 extent(grd)
 
 ### CREATE A TRIPS OBJECT FOR THE GRID FROM Trips ###
-all_trips<-trip(Trips, TORnames=c("DateTime","ID"))			### switch to "DateTime" when using the raw locations
-trg <- tripGrid(all_trips, grid=grd,method="pixellate")						### this will provide the number of bird seconds spent in each grid cell
-spplot(trg)			## plots the trips with a legend
-proj4string(turbSPDF)<-proj4string(EVSP_all)
+all_trips<-trip(input, TORnames=c("DateTime","ID"))			### switch to "DateTime" when using the raw locations
+trg <- tripGrid(all_trips, grid=grd,method="pixellate")		### this will provide the number of bird seconds spent in each grid cell
 
 
 ### CONVERT SPATIAL GRID TO SOMETHING WE CAN PLOT
@@ -544,27 +557,12 @@ spdf <- SpatialPixelsDataFrame(points=trg, data=trg@data)
 HOTSPOTS<-data.frame(lat=spdf@coords[,2],long=spdf@coords[,1],time=spdf@data$z)
 HOTSPOTS$time<-HOTSPOTS$time/(3600*24)								### this converts the seconds into bird days
 summary(HOTSPOTS)
-
-HOTSPOTS<-HOTSPOTS[HOTSPOTS$time>10,]
+dispindmorisita(HOTSPOTS$time*nind)
 
 ##### CONVERT TO SPATIAL POLYGONS FOR OVERLAY ###
 ras<- raster(spdf)		# converts the SpatialPixelDataFrame into a raster
 spoldf <- rasterToPolygons(ras, n=4) # converts the raster into quadratic polygons
 proj4string(spoldf)<-proj4string(EVSP_all)
-
-
-### PRODUCE NICE AND SHINY MAP WITH THE MOST IMPORTANT TEMPORARY CONGREGATION SITES ###
-
-#MAP <- get_map(EGVUbox, source="google", zoom=4, color = "bw")		### retrieves a map from Google (requires live internet connection)
-MAP <- get_map(location = c(lon = mean(long), lat = mean(lat)), source="google", zoom=4, color = "bw")		### retrieves a map from Google (requires live internet connection)
-
-pdf("EGVU_MIGRATION_HOTSPOTS.pdf", width=12, height=11)
-ggmap(MAP)+geom_tile(data=HOTSPOTS, aes(x=long,y=lat, fill = time)) +
-	scale_fill_gradient(name = 'N bird days', low="white", high="red", na.value = 'transparent', guide = "colourbar", limits=c(10, 30))+
-	theme(axis.ticks = element_blank(),axis.text = element_blank(),axis.title = element_blank())+
-	theme(strip.text.y = element_text(size = 20, colour = "black"), strip.text.x = element_text(size = 15, colour = "black"))+
-	geom_point(data=turbs, aes(x=Longitude, y=Latitude), pch=16, col='darkolivegreen', size=0.5)
-dev.off()
 
 
 
