@@ -334,6 +334,7 @@ scaleARS <- function(DataGroup, Scales = c(seq(1, 25, 1), seq(30, 50, 5), 75, se
 ## UDLev should be the quantile to be used for the Utilisation Distribution.
     
 ## UPDATED BY STEFFEN OPPEL ON 16 Dec 2016 to fix orphaned holes in output geometry
+## UPDATED BY STEFFEN OPPEL ON 23 Dec 2016 to switch to adehabitatHR
 
 
 batchUD <- function(DataGroup, Scale = 50, UDLev = 50)
@@ -341,7 +342,7 @@ batchUD <- function(DataGroup, Scale = 50, UDLev = 50)
     require(sp)
     require(maptools)
     require(rgdal)
-    require(adehabitat)
+    require(adehabitatHR)   ### adehabitat is deprecated, switched to adehabitatHR on 23 Dec 2016
     require(geosphere)
 
     if(!"Latitude" %in% names(DataGroup)) stop("Latitude field does not exist")
@@ -361,31 +362,15 @@ batchUD <- function(DataGroup, Scale = 50, UDLev = 50)
     DataGroup$Y <- DataGroup@coords[,2]
 
     UIDs <- unique(DataGroup$ID)
-    note<-0
-    KDE.Sp <- NULL
-    for(i in 1:length(UIDs))
-      {
-      Trip <- DataGroup[DataGroup$ID == UIDs[i],]
-      if(nrow(Trip@data)<6)
-        {
-        print(paste("ID =", UIDs[i], "has fewer than 6 points, too small to fit kernel. It will be excluded"))
-         if(i == 1){note <- 1}
-        next
-        }
-      TripCoords <- data.frame(Trip@coords)
-      Temp <- data.frame(TripCoords[,1], TripCoords[,2])
-      Ext <- (min(Temp[,1]) + 3 * diff(range(Temp[,1])))
-      if(Ext < (Scale * 1000 * 2)) {BExt <- ceiling((Scale * 1000 * 3)/(diff(range(Temp[,1]))))} else {BExt <- 3}
-      KDE.Surface <- kernelUD(data.frame(TripCoords[,1], TripCoords[,2]), id=Trip$ID, h=(Scale * 1000), grid=100, extent=BExt, same4all=FALSE)
-      KDE.UD <- getverticeshr(KDE.Surface, lev = UDLev)
-      KDE.Sp1 <- kver2spol(KDE.UD)
+    #note<-0          removed loop to check whether >5 data points exist per trip - considered unnecessary
+    #KDE.Sp <- NULL
+    TripCoords<-SpatialPointsDataFrame(DataGroup, data=DataGroup@data[,9:10])
+    TripCoords@data$bird_id<-NULL
+    Ext <- (min(coordinates(TripCoords)[,1]) + 3 * diff(range(coordinates(TripCoords)[,1])))
+    if(Ext < (Scale * 1000 * 2)) {BExt <- ceiling((Scale * 1000 * 3)/(diff(range(coordinates(TripCoords)[,1]))))} else {BExt <- 3}
 
-      if(i==1 | note==1) {KDE.Sp <- KDE.Sp1} else
-      KDE.Sp <- spRbind(KDE.Sp, KDE.Sp1)
-      plot(KDE.Sp)
-      note<-0
-      if(i < length(UIDs)) {legend("bottomleft", paste(UIDs[i+1]))}
-      }
+KDE.Surface <- adehabitatHR::kernelUD(TripCoords, h=(Scale * 1000), grid=1000, extent=BExt, same4all=FALSE)		## newer version needs SpatialPoints object and id no longer required in adehabitatHR, also removed 'extent' as it caused problems
+KDE.Sp <- adehabitatHR::getverticeshr(KDE.Surface, lev = UDLev)	
 
     UIDs <- names(which(table(DataGroup$ID)>5))
     KDE.Sp@proj4string <- DgProj
