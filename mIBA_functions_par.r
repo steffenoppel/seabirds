@@ -364,8 +364,8 @@ batchUD <- function(DataGroup, Scale = 50, UDLev = 50)
     UIDs <- unique(DataGroup$ID)
     #note<-0          removed loop to check whether >5 data points exist per trip - considered unnecessary
     #KDE.Sp <- NULL
-    TripCoords<-SpatialPointsDataFrame(DataGroup, data=DataGroup@data[,9:10])
-    TripCoords@data$bird_id<-NULL
+    TripCoords<-SpatialPointsDataFrame(DataGroup, data=data.frame(ID=DataGroup@data$ID,TrackTime=DataGroup@data$TrackTime))		
+    TripCoords@data$TrackTime<-NULL
     Ext <- (min(coordinates(TripCoords)[,1]) + 3 * diff(range(coordinates(TripCoords)[,1])))
     if(Ext < (Scale * 1000 * 2)) {BExt <- ceiling((Scale * 1000 * 3)/(diff(range(coordinates(TripCoords)[,1]))))} else {BExt <- 3}
 
