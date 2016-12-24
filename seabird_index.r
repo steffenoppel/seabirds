@@ -90,13 +90,13 @@ batchUDOL <- function(DataGroup, Scale = 50, UDLev = 50)
 
 ##### USE NEW kernelUD function to bypass loop over individuals ####
 
-TripCoords<-SpatialPointsDataFrame(DataGroup, data=DataGroup@data[,9:10])		## this only works if 'ID' is in those two columns!!
-TripCoords@data$bird_id<-NULL
+TripCoords<-SpatialPointsDataFrame(DataGroup, data=data.frame(ID=DataGroup@data$ID,TrackTime=DataGroup@data$TrackTime))		
+TripCoords@data$TrackTime<-NULL
 Ext <- (min(coordinates(TripCoords)[,1]) + 3 * diff(range(coordinates(TripCoords)[,1])))
-if(Ext < (Scale * 1000 * 2)) {BExt <- ceiling((Scale * 1000 * 3)/(diff(range(coordinates(TripCoords)[,1]))))} else {BExt <- 3}
+if(Ext < (Scale * 1000 * 2)) {BExt <- ceiling((Scale * 1000 * 3)/(diff(range(coordinates(TripCoords)[,1]))))} else {BExt <- 5}
 
-KDE.Surface <- adehabitatHR::kernelUD(TripCoords, h=(Scale * 1000), grid=1000, extent=BExt, same4all=FALSE)		## newer version needs SpatialPoints object and id no longer required in adehabitatHR, also removed 'extent' as it caused problems
-KDE.Sp <- adehabitatHR::getverticeshr(KDE.Surface, lev = UDLev)	
+KDE.Surface <- adehabitatHR::kernelUD(TripCoords, h=(Scale * 1000), grid=1000, extent=BExt, same4all=FALSE)
+KDE.Sp <- adehabitatHR::getverticeshr(KDE.Surface, percent = UDLev,unin = "m", unout = "km2")	
 
     UIDs <- names(which(table(DataGroup$ID)>5))
     KDE.Sp@proj4string <- DgProj
@@ -131,7 +131,7 @@ OL1<-adehabitatHR::kerneloverlaphr(KDE.Surface, method = ix,percent= UDLev, cond
 #str(OL1)
 OL1<-as.data.frame(melt(OL1))
 OL1<-OL1[!(OL1$X1==OL1$X2),]
-olInd$mean_index[olInd$method==ix]<-mean(OL1$value)
+olInd$mean_index[olInd$method==ix]<-median(OL1$value)		## mean gives crazy values because occasionally index is >100
 olInd$n_comps[olInd$method==ix]<-dim(OL1)[1]
 }
 

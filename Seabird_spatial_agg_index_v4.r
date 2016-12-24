@@ -19,7 +19,8 @@
 
 ## NEED TO DO: CHECK SAMPLE SIZE CORRECTION FOR INDEX!! CHECK INDEX SENSITIVITY TO TRIP BUFFER FOR ALBATROSS
 
-
+## for spatial aggregation indices see : http://life.mcmaster.ca/~brian/evoldir/Answers/Aggregation.answers
+## https://cran.r-project.org/web/views/Spatial.html
 
 ## based on Stats Club Discussion on 9 Dec we could proceed as follows:
 
@@ -47,7 +48,7 @@
 library(Hmisc)
 require(maps)
 require(mapdata)
-require(adehabitat)
+require(adehabitatHR)
 require(foreign)
 require(maptools)
 require(geosphere)
@@ -62,6 +63,7 @@ library(vegan)
 library(adehabitatLT)
 data(countriesLow)
 library(inflection)
+library(spatstat)
 
 source("S:\\ConSci\\DptShare\\SteffenOppel\\RSPB\\Marine\\IBA\\Analysis\\mIBA_functions_upd2016.r")
 source("S:\\ConSci\\DptShare\\SteffenOppel\\RSPB\\Marine\\SeabirdPrioritisation\\seabird_index.r")
@@ -168,9 +170,9 @@ overview$Duration<-ifelse(overview$device=="PTT",10,ifelse(overview$Seabird_type
 # START LOOP OVER EACH DATA GROUP
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-OUTPUT<-data.frame()							### set up blank frame to write output from parallelised loop
-SUMMARY<-data.frame()							### set up blank frame to write output from parallelised loop
-
+OUTPUT<-data.frame()							### set up blank frame to collate Morisita index values
+SUMMARY<-data.frame()							### set up blank frame to collate inflection point summaries
+OL_INDEX<-data.frame()							### set up blank frame to collect overlap indices for each data set
 
 for (dg in 1:max(overview$DataGroup)){
 
@@ -203,7 +205,7 @@ if(tracks$device[1]=="PTT"){
 traj <- as.ltraj(xy=data.frame(tracks$Longitude, tracks$Latitude), date=as.POSIXct(tracks$TrackTime, origin="1970/01/01", tz="GMT"), id=tracks$ID, typeII = TRUE)
 
 ## Rediscretization every 3600 seconds
-tr <- redisltraj(traj, 3600, type="time")
+tr <- adehabitatLT::redisltraj(traj, 3600, type="time")
 
 ## Convert output into a data frame
 tracks.intpol<-data.frame()
@@ -275,20 +277,33 @@ for(i in 1:length(unique(tracks$ID)))
 # CALCULATE SCALE FOR AREA RESTRICTED SEARCH
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 DataGroup <- Trips
-head(Trips@data)
+#head(Trips@data)
 ScaleOut <- scaleARS(DataGroup[DataGroup@data$trip_id!="-1",], Scales = c(seq(0, 50, 0.5)), Peak="Flexible")
 # consider replacing this with 10 km uniformly across all species to keep results consistent?
-#ScaleOut <- 20
+#ScaleOut <- 10
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # DELINEATE CORE AREAS (KERNEL DENSITY ESTIMATOR - 50% Utilisation Distribution)
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 UD<-50		## pick the % utilisation distribution (50%, 95% etc.)
-Output <- batchUD(DataGroup[DataGroup@data$trip_id!="-1",], Scale = ScaleOut/2, UDLev = UD)
+Output <- batchUDOL(DataGroup[DataGroup@data$trip_id!="-1",], Scale = ScaleOut/2, UDLev = UD)
 plot(localmap, col='darkolivegreen3', add=T)
+OLindex<-Output$OverlapIndex
+OLindex$DataGroup<-dg
 
 
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# CALCULATE RIPLEY'S K
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+bbox(input)[1,]
+points<-coordinates(DataGroup[DataGroup@data$trip_id!="-1",])
+mypattern <- ppp(points[,1], points[,2], bbox(input)[1,], bbox(input)[2,])
+RipK<-Kest(mypattern)
+maxK<-max(RipK$border)
+OLindex$Rip_K<-min(RipK$r[RipK$border==maxK])
+OL_INDEX<-rbind(OL_INDEX,OLindex)
 
 
 
@@ -304,26 +319,29 @@ for (sc in spatscales){
 # COUNTING THE POLYGONS AND CALCULATING SPATIAL DISPERSION INDEX
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-temp<-spatInd(Output, Res = sc)				### resolution in decimal degrees
+temp<-spatInd(Output$UDpolygons, Res = sc)				### resolution in decimal degrees
 temp$DataGroup<-dg
 outMorisita<-rbind(outMorisita,temp)
 } ### end loop over spatial scales
 
 OUTPUT<-rbind(OUTPUT,outMorisita)
-
+dev.off()
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# CALCULATE INFLECTION POINT AND ASYMPTOTE FOR DATA SET
+# CALCULATE INFLECTION POINT AND ASYMPTOTE FOR DATA SET - NaN output - removed on 23 Dec 2016
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Morisummary<-data.frame(DataGroup=dg,inflection=0,asymptote=0)
-EDE<-bede(outMorisita$Scale,outMorisita$Morisita,0)
-asymp<-bese(outMorisita$Scale,outMorisita$Morisita,1)
-Morisummary$inflection<-EDE$iters$EDE[1]
-Morisummary$asymptote<-asymp$iters$ESE
-SUMMARY<-rbind(SUMMARY,Morisummary)
+#Morisummary<-data.frame(DataGroup=dg,inflection=0,asymptote=0)
+#EDE<-bede(outMorisita$Scale,outMorisita$imst,0)
+#asymp<-bese(outMorisita$Scale,outMorisita$imst,1)
+#Morisummary$inflection<-EDE$iters$EDE[1]
+#Morisummary$asymptote<-asymp$iters$ESE
+#SUMMARY<-rbind(SUMMARY,Morisummary)
 
 } ### end loop over species 
 
+
+
+########################################
 
 
 
@@ -341,7 +359,6 @@ SUMMARY<-rbind(SUMMARY,Morisummary)
 overview$slope<-0
 overview$p<-0
 overview$maxMorisita<-0
-smallOUT<-OUTPUT[OUTPUT$Scale<6,]
 
 for (dg in overview$DataGroup){
 x<-smallOUT[smallOUT$DataGroup==dg,]
@@ -360,14 +377,118 @@ overview<-overview[order(overview$slope, decreasing=F),]
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# EXPLORING VARIOUS SLOPES ACROSS SPECIES
+# INSPECTING OUTPUT: BARPLOTS FOR OVERLAP INDICES AND RIPLEYS K
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+### for overall results
+OL_INDEX$Species<-overview$scientific_name[match(OL_INDEX$DataGroup,overview$DataGroup)]
+OL_INDEX<-OL_INDEX[order(OL_INDEX$Rip_K, decreasing=F),]
+head(OL_INDEX)
+
+
+
+######### PLOT RIPLEY'S K ASYMPTOTE - THE MOST PROMISING APPROACH #######################
+
+ggplot(OL_INDEX[OL_INDEX$method=="VI",], aes(x=DataGroup, y=log(Rip_K/1000)), size=2)+
+geom_bar(stat="identity")+
+  xlab("Species") +
+  ylab("Spatial scale of Ripley's K asymptote (km)") +
+  scale_x_discrete(limits=as.character(unique(OL_INDEX$DataGroup)),labels=c("RAZO","RAZO","FRIG","FRIG","RBTB","RBTB","SHAG","SHAG","SOAL","MUPE","MABO","MABO","MABO","MABO","CGUIL","CGUIL"))+
+  theme(panel.background=element_rect(fill="white", colour="black"),
+	axis.text.x = element_text(face="bold", color="#993333", size=14, angle=45), 
+        axis.text.y=element_text(size=18, color="black"), 
+        axis.title=element_text(size=20), 
+        strip.text.x=element_text(size=18, color="black"), 
+        strip.background=element_rect(fill="white", colour="black"), 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.border = element_blank(), 
+        panel.background = element_blank())
+
+
+
+
+###### PLOT OVERLAP INDICES - RBTB IS OUTLIER ####
+
+ggplot(OL_INDEX, aes(x=DataGroup, y=mean_index), size=2)+
+geom_bar(stat="identity")+facet_wrap("method", ncol=3, scales = "free")+
+  xlab("Species") +
+  ylab("Value of overlap index") +
+  scale_x_discrete(limits=as.character(unique(OL_INDEX$DataGroup)),labels=c("RAZO","RAZO","FRIG","FRIG","RBTB","RBTB","SHAG","SHAG","SOAL","MUPE","MABO","MABO","MABO","MABO","CGUIL","CGUIL"))+
+  theme(panel.background=element_rect(fill="white", colour="black"), 
+        axis.text.x = element_text(color="#993333", size=14, angle=45), 
+        axis.text.y=element_text(size=18, color="black"), 
+        axis.title=element_text(size=20), 
+        strip.text.x=element_text(size=18, color="black"), 
+        strip.background=element_rect(fill="white", colour="black"), 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.border = element_blank(), 
+        panel.background = element_blank())
+
+### FOR JUST ONE INDEX ####
+
+ggplot(OL_INDEX[OL_INDEX$method=="VI",], aes(x=DataGroup, y=mean_index), size=2)+
+geom_bar(stat="identity")+
+  xlab("Species") +
+  ylab("Value of overlap index") +
+  scale_x_discrete(limits=as.character(unique(OL_INDEX$DataGroup)),labels=c("RAZO","RAZO","FRIG","FRIG","RBTB","RBTB","SHAG","SHAG","SOAL","MUPE","MABO","MABO","MABO","MABO","CGUIL","CGUIL"))+
+  theme(panel.background=element_rect(fill="white", colour="black"),
+	axis.text.x = element_text(face="bold", color="#993333", size=14, angle=45), 
+        axis.text.y=element_text(size=18, color="black"), 
+        axis.title=element_text(size=20), 
+        strip.text.x=element_text(size=18, color="black"), 
+        strip.background=element_rect(fill="white", colour="black"), 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.border = element_blank(), 
+        panel.background = element_blank())
+
+
+
+
+
+
+######### PLOT MAX MORISITA AND SLOPE #######################
+
+ggplot(overview, aes(x=DataGroup, y=slope, size=2)+
+geom_bar(stat="identity")+
+  xlab("Species") +
+  ylab("Spatial scale of Ripley's K asymptote (km)") +
+  scale_x_discrete(limits=as.character(unique(overview$DataGroup)),labels=c("RAZO","RAZO","FRIG","FRIG","RBTB","RBTB","SHAG","SHAG","SOAL","MUPE","MABO","MABO","MABO","MABO","CGUIL","CGUIL"))+
+  theme(panel.background=element_rect(fill="white", colour="black"),
+	axis.text.x = element_text(face="bold", color="#993333", size=14, angle=45), 
+        axis.text.y=element_text(size=18, color="black"), 
+        axis.title=element_text(size=20), 
+        strip.text.x=element_text(size=18, color="black"), 
+        strip.background=element_rect(fill="white", colour="black"), 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.border = element_blank(), 
+        panel.background = element_blank())
+
+
+
+
+
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# INSPECTING OUTPUT: EXPLORING VARIOUS SLOPES ACROSS SPECIES
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ### for overall results
 OUTPUT$Species<-overview$scientific_name[match(OUTPUT$DataGroup,overview$DataGroup)]
-#OUTPUT<-OUTPUT[order(OUTPUT$Scale),]
+OUTPUT$DataGroup<-as.factor(OUTPUT$DataGroup)
+levels(OUTPUT$DataGroup) <- paste(c("RAZO","RAZO","FRIG","FRIG","RBTB","RBTB","SHAG","SHAG","SOAL","MUPE","MABO","MABO","MABO","MABO","CGUIL","CGUIL"),OUTPUT$DataGroup,sep="")
+#OUTPUT$DataGroup<-as.numeric(rep(c(1:16), length(spatscales)))
+OUTPUT<-OUTPUT[order(OUTPUT$Scale),]
+smallOUT<-OUTPUT[OUTPUT$Scale<6,]
 
-ggplot(smallOUT, aes(x=log(Scale*100), y=Morisita), size=2)+
+ggplot(OUTPUT, aes(x=log(Scale*100), y=Morisita), size=2)+
 geom_smooth(fill="lightblue", size=1.5)+facet_wrap("DataGroup", ncol=4, scales = "free")+
   geom_point(colour="black", size=2.5) +
   xlab("log(spatial scale (km))") +
@@ -384,7 +505,7 @@ geom_smooth(fill="lightblue", size=1.5)+facet_wrap("DataGroup", ncol=4, scales =
 
 
 
-ggplot(smallOUT, aes(x=log(Scale*100), y=imst), size=2)+
+ggplot(OUTPUT, aes(x=log(Scale*100), y=imst), size=2)+
 geom_smooth(fill="lightblue", size=1.5)+facet_wrap("DataGroup", ncol=4)+
   geom_point(colour="black", size=2.5) +
   xlab("log(spatial scale (km))") +
@@ -450,25 +571,13 @@ geom_line(colour="lightblue", size=1.5)+facet_wrap("DataGroup", ncol=4)+
 # DEVELOPING FUNCTION FOR SPATIAL AGGREGATION INDEX
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+
+
+
+########## TROUBLESHOOTING SEABIRD SPATIAL OVERLAP INDEX  ######################################################################################################
 DataGroup<-DataGroup[DataGroup@data$trip_id!="-1",]
 Scale = ScaleOut/2
 UDLev = UD
-
-########## SEABIRD SPATIAL OVERLAP INDEX  ######################################################################################################
-
-## STEFFEN OPPEL 2016
-## This function is based on the marine IBA 'batchUD' function (Lascelles et al. 2016)
-## Modified to remove raster output and include polygons with no core ranges
-## Added calculation and reporting of Morisita spatial aggregation index
-
-
-batchUD <- function(DataGroup, Scale = 50, UDLev = 50)
-    {
-    require(sp)
-    require(maptools)
-    require(rgdal)
-    require(adehabitatHR)
-    require(geosphere)
 
     if(!"Latitude" %in% names(DataGroup)) stop("Latitude field does not exist")
     if(!"Longitude" %in% names(DataGroup)) stop("Longitude field does not exist")
@@ -489,34 +598,15 @@ batchUD <- function(DataGroup, Scale = 50, UDLev = 50)
     UIDs <- unique(DataGroup$ID)
 
 
-### USE NEW kernelUD function to bypass loop over individuals
-DataGroup@data[1:5,]
-TripCoords<-SpatialPointsDataFrame(DataGroup, data=DataGroup@data[,9:10])
-TripCoords@data$bird_id<-NULL
+##### USE NEW kernelUD function to bypass loop over individuals ####
+
+TripCoords<-SpatialPointsDataFrame(DataGroup, data=data.frame(ID=DataGroup@data$ID,TrackTime=DataGroup@data$TrackTime))		## this only works if 'ID' is in those two columns!!
+TripCoords@data$TrackTime<-NULL
+Ext <- (min(coordinates(TripCoords)[,1]) + 3 * diff(range(coordinates(TripCoords)[,1])))
+if(Ext < (Scale * 1000 * 2)) {BExt <- ceiling((Scale * 1000 * 3)/(diff(range(coordinates(TripCoords)[,1]))))} else {BExt <- 5}
 
 KDE.Surface <- adehabitatHR::kernelUD(TripCoords, h=(Scale * 1000), grid=1000, extent=BExt, same4all=FALSE)		## newer version needs SpatialPoints object and id no longer required in adehabitatHR, also removed 'extent' as it caused problems
-KDE.Sp <- adehabitatHR::getverticeshr(KDE.Surface, lev = UDLev)	
-
-### CALCULATE VARIOUS OVERLAP INDICES
-OL1<-kerneloverlaphr(KDE.Surface, method = c("HR"),percent = UDLev, conditional = FALSE)
-OL2<-kerneloverlaphr(KDE.Surface, method = c("PHR"),percent = UDLev, conditional = FALSE)
-OL3<-kerneloverlaphr(KDE.Surface, method = c("VI"),percent = UDLev, conditional = FALSE)
-OL4<-kerneloverlaphr(KDE.Surface, method = c("BA"),percent = UDLev, conditional = FALSE)
-OL5<-kerneloverlaphr(KDE.Surface, method = c("UDOI"),percent = UDLev, conditional = FALSE)
-OL6<-kerneloverlaphr(KDE.Surface, method = c("HD"),percent = UDLev, conditional = FALSE)
-
-## CALCULATE MEAN BUT REMOVE DIAGONAL
-str(OL1)
-OL1<-as.data.frame(melt(OL1))
-OL1<-OL1[!(OL1$X1==OL1$X2),]
-mean(OL1$value)
-
-mean(OL1[OL1<1.0])
-mean(OL2)
-mean(OL3)
-mean(OL4[OL4<1.0])
-mean(OL5[OL5<1.0])
-mean(OL6[OL6>0])
+KDE.Sp <- adehabitatHR::getverticeshr(KDE.Surface, percent = UDLev,unin = "m", unout = "km2")	
 
     UIDs <- names(which(table(DataGroup$ID)>5))
     KDE.Sp@proj4string <- DgProj
@@ -527,7 +617,7 @@ mean(OL6[OL6>0])
 
     plot(KDE.Spdf, border=factor(UIDs))
       
-      ##### OVERLAYS IN THE polyCount FUNCTION WILL NOT WORK IF THE POLYGONS CONTAIN HOLES OR ARE ORPHANED
+##### OVERLAYS IN THE polyCount FUNCTION WILL NOT WORK IF THE POLYGONS CONTAIN HOLES OR ARE ORPHANED
       ## simple fix to remove holes from polygon object
       va90a <- spChFIDs(KDE.Spdf, paste(KDE.Spdf$Name_0, KDE.Spdf$Name_1, KDE.Spdf$ID, sep = ""))
       va90a <- va90a[, -(1:4)]
@@ -536,17 +626,260 @@ mean(OL6[OL6>0])
       p4sva <- CRS(proj4string(va90a))
       vaSP <- SpatialPolygons(va90_pla, proj4string = p4sva)
       va90b <- SpatialPolygonsDataFrame(vaSP, data = as(va90a, "data.frame"))   ### this returns an empty data frame
-      va90b@data<-KDE.Spdf@data                                                   ### this adds the original data back into the data frame - may not work if entire polygons are removed
+      va90b@data<-KDE.Spdf@data                                               ### this adds the original data back into the data frame - may not work if entire polygons are removed
       
       
-    return(va90b)     ## changed from KDE.Spdf to replace with cleaned version
+plot(va90b)     ## R does not allow return of multiple objects, hence combined in list below
+
+##### CALCULATE VARIOUS OVERLAP INDICES #####
+
+olInd<-data.frame(method=c("HR", "PHR", "VI", "BA", "UDOI", "HD"), mean_index=0, n_comps=0)
+for(ix in c("HR", "PHR", "VI", "BA", "UDOI", "HD")){
+OL1<-adehabitatHR::kerneloverlaphr(KDE.Surface, method = "BA",percent= UDLev, conditional = FALSE)
+
+## CALCULATE MEAN BUT REMOVE DIAGONAL
+#str(OL1)
+OL1<-as.data.frame(melt(OL1))
+OL1<-OL1[!(OL1$X1==OL1$X2),]
+olInd$mean_index[olInd$method==ix]<-median(OL1$value)
+olInd$n_comps[olInd$method==ix]<-dim(OL1)[1]
+}
+va90b@data$ID=="69227"
+plot(getvertices(va90b@polygons[[6]]))
+
+####
+outlist<-list("UDpolygons"=va90b,"OverlapIndex"=olInd)
+return(outlist)
+
+
+
+
+
+################ TROUBLESHOOTING getverticeshr for extent error message
+x<-KDE.Surface
+ida = NULL
+
+> getverticeshr.estUD
+function (x, percent = 95, ida = NULL, unin = c("m", "km"), unout = c("ha", 
+    "km2", "m2"), standardize = FALSE, ...) 
+{
+    if (!inherits(x, "estUD")) 
+        stop("x should be of class \"estUD\"")
+    if (inherits(x, "estUD") & (is.null(ida))) 
+        ida <- "homerange"
+    unin <- match.arg(unin)
+    unout <- match.arg(unout)
+    pfs <- proj4string(x)
+    if (!slot(x, "vol")) 
+        x <- getvolumeUD(x, standardize = standardize)
+    tmp <- x[[1]]
+    gp <- gridparameters(x)[, 3]
+    tmpm <- matrix(tmp, ncol = gp[2], nrow = gp[1], byrow = TRUE)
+    ma <- min(c(tmpm[c(1:nrow(tmpm)), c(1, ncol(tmpm))], tmpm[c(1, 
+        nrow(tmpm)), c(1:ncol(tmpm))]))
+    if (any(percent >= ma)) 
+        stop(paste("The grid is too small to allow the estimation of home-range.\nYou should rerun kernelUD with a larger extent parameter", 
+            sep = ""))
+    if (length(percent) > 1) 
+        stop("percent should be of length 1")
+    xyma <- coordinates(x)
+    xyl <- list(x = unique(xyma[, 1]), y = unique(xyma[, 2]))
+    ud <- as.image.SpatialGridDataFrame(x[, 1])$z
+    re <- contourLines(x = xyl$x, y = xyl$y, ud, nlevels = 1, 
+        levels = percent)
+    areaa <- unlist(lapply(re, function(y) {
+        ttmp <- cbind(y$x, y$y)
+        ttmp <- rbind(ttmp, ttmp[1, ])
+        .arcpspdf(SpatialPolygons(list(Polygons(list(Polygon(ttmp)), 
+            1))))
+    }))
+    spatpol <- do.call("cbind", lapply(1:length(re), function(i) {
+        y <- re[[i]]
+        zz <- cbind(y$x, y$y)
+        zz <- rbind(zz, zz[1, ])
+        tmp <- SpatialPolygons(list(Polygons(list(Polygon(zz)), 
+            as.character(i))), proj4string = CRS(pfs))
+        return(!is.na(over(x, tmp)))
+    }))
+    spatpol <- as.data.frame(spatpol)
+    hol <- unlist(lapply(1:ncol(spatpol), function(i) {
+        all(apply(data.frame(spatpol[spatpol[, i], -i]), 1, any))
+    }))
+    areaa <- sum(areaa * sign(as.numeric(!hol) - 0.5))
+    ii <- SpatialPolygons(list(Polygons(lapply(1:length(re), 
+        function(i) {
+            y <- re[[i]]
+            zz <- cbind(y$x, y$y)
+            zz <- rbind(zz, zz[1, ])
+            return((Polygon(zz, hole = hol[i])))
+        }), ida)))
+    if (unin == "m") {
+        if (unout == "ha") 
+            areaa <- areaa/10000
+        if (unout == "km2") 
+            areaa <- areaa/1e+06
     }
+    if (unin == "km") {
+        if (unout == "ha") 
+            areaa <- areaa * 100
+        if (unout == "m2") 
+            areaa <- areaa * 1e+06
+    }
+    dff <- data.frame(id = ida, area = areaa)
+    row.names(dff) <- ida
+    ii <- SpatialPolygonsDataFrame(ii, dff)
+    if (!is.na(pfs)) 
+        proj4string(ii) <- CRS(pfs)
+    return(ii)
+}
+<environment: namespace:adehabitatHR>
 
 
+x<-va90b
 
-
-
-
-
-
+> adehabitatHR::kerneloverlaphr
+function (x, method = c("HR", "PHR", "VI", "BA", "UDOI", "HD"), 
+    percent = 95, conditional = FALSE, ...) 
+{
+    method <- match.arg(method)
+    if (!inherits(x, "estUDm")) 
+        stop("x should be of class estUDm")
+    if (length(x) == 1) 
+        stop("several animals are needed for this function")
+    if (slot(x[[1]], "vol")) 
+        stop("x should not be a volume under UD")
+    vol <- getvolumeUD(x)
+    x <- lapply(x, function(y) {
+        coo <- coordinates(y)
+        y[order(coo[, 1], coo[, 2]), ]
+    })
+    vol <- lapply(vol, function(y) {
+        coo <- coordinates(y)
+        y[order(coo[, 1], coo[, 2]), ]
+    })
+    gp <- gridparameters(vol[[1]])
+    res <- matrix(0, ncol = length(x), nrow = length(x))
+    for (i in 1:length(x)) {
+        for (j in 1:i) {
+            if (method == "HR") {
+                vi <- vol[[i]][[1]]
+                vj <- vol[[j]][[1]]
+                vi[vi <= percent] <- 1
+                vi[vi > percent] <- 0
+                vj[vj <= percent] <- 1
+                vj[vj > percent] <- 0
+                vk <- vi * vj
+                res[i, j] <- sum(vk)/sum(vi)
+                res[j, i] <- sum(vk)/sum(vj)
+            }
+            if (method == "PHR") {
+                vi <- x[[i]][[1]]
+                vj <- x[[j]][[1]]
+                ai <- vol[[i]][[1]]
+                aj <- vol[[j]][[1]]
+                ai[ai <= percent] <- 1
+                ai[ai > percent] <- 0
+                aj[aj <= percent] <- 1
+                aj[aj > percent] <- 0
+                if (conditional) {
+                  vi <- vi * ai
+                  vj <- vj * aj
+                  res[j, i] <- sum(vi * aj) * (gp[1, 2]^2)
+                  res[i, j] <- sum(vj * ai) * (gp[1, 2]^2)
+                }
+                else {
+                  res[j, i] <- sum(vi * aj) * (gp[1, 2]^2)
+                  res[i, j] <- sum(vj * ai) * (gp[1, 2]^2)
+                }
+            }
+            if (method == "VI") {
+                vi <- x[[i]][[1]]
+                vj <- x[[j]][[1]]
+                ai <- vol[[i]][[1]]
+                aj <- vol[[j]][[1]]
+                ai[ai <= percent] <- 1
+                ai[ai > percent] <- 0
+                aj[aj <= percent] <- 1
+                aj[aj > percent] <- 0
+                if (conditional) {
+                  vi <- vi * ai
+                  vj <- vj * aj
+                  res[i, j] <- res[j, i] <- sum(pmin(vi, vj)) * 
+                    (gp[1, 2]^2)
+                }
+                else {
+                  res[i, j] <- res[j, i] <- sum(pmin(vi, vj)) * 
+                    (gp[1, 2]^2)
+                }
+            }
+            if (method == "BA") {
+                vi <- x[[i]][[1]]
+                vj <- x[[j]][[1]]
+                ai <- vol[[i]][[1]]
+                aj <- vol[[j]][[1]]
+                ai[ai <= percent] <- 1
+                ai[ai > percent] <- 0
+                aj[aj <= percent] <- 1
+                aj[aj > percent] <- 0
+                if (conditional) {
+                  vi <- vi * ai
+                  vj <- vj * aj
+                  res[j, i] <- res[i, j] <- sum(sqrt(vi) * sqrt(vj)) * 
+                    (gp[1, 2]^2)
+                }
+                else {
+                  res[j, i] <- res[i, j] <- sum(sqrt(vi) * sqrt(vj)) * 
+                    (gp[1, 2]^2)
+                }
+            }
+            if (method == "UDOI") {
+                vi <- x[[i]][[1]]
+                vj <- x[[j]][[1]]
+                ai <- vol[[i]][[1]]
+                aj <- vol[[j]][[1]]
+                ai[ai <= percent] <- 1
+                ai[ai > percent] <- 0
+                aj[aj <= percent] <- 1
+                aj[aj > percent] <- 0
+                if (conditional) {
+                  vi <- vi * ai
+                  vj <- vj * aj
+                  ak <- sum(ai * aj) * (gp[1, 2]^2)
+                  res[j, i] <- res[i, j] <- ak * sum(vi * vj) * 
+                    (gp[1, 2]^2)
+                }
+                else {
+                  ak <- sum(ai * aj) * (gp[1, 2]^2)
+                  res[j, i] <- res[i, j] <- ak * sum(vi * vj) * 
+                    (gp[1, 2]^2)
+                }
+            }
+            if (method == "HD") {
+                vi <- x[[i]][[1]]
+                vj <- x[[j]][[1]]
+                ai <- vol[[i]][[1]]
+                aj <- vol[[j]][[1]]
+                ai[ai <= percent] <- 1
+                ai[ai > percent] <- 0
+                aj[aj <= percent] <- 1
+                aj[aj > percent] <- 0
+                if (conditional) {
+                  vi <- vi * ai
+                  vj <- vj * aj
+                  res[j, i] <- res[i, j] <- sqrt(sum((sqrt(vi) - 
+                    sqrt(vj))^2 * (gp[1, 2]^2)))
+                }
+                else {
+                  res[j, i] <- res[i, j] <- sqrt(sum((sqrt(vi) - 
+                    sqrt(vj))^2 * (gp[1, 2]^2)))
+                }
+            }
+        }
+    }
+    rownames(res) <- names(x)
+    colnames(res) <- names(x)
+    return(res)
+}
+<environment: namespace:adehabitatHR>
+> 
 
