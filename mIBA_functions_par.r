@@ -370,7 +370,7 @@ batchUD <- function(DataGroup, Scale = 50, UDLev = 50)
     if(Ext < (Scale * 1000 * 2)) {BExt <- ceiling((Scale * 1000 * 3)/(diff(range(coordinates(TripCoords)[,1]))))} else {BExt <- 5} #changed from 3 to 5 on 23 Dec 2016 to avoid 'too small extent' error
 
 KDE.Surface <- adehabitatHR::kernelUD(TripCoords, h=(Scale * 1000), grid=1000, extent=BExt, same4all=FALSE)		## newer version needs SpatialPoints object and id no longer required in adehabitatHR, also removed 'extent' as it caused problems
-KDE.Sp <- adehabitatHR::getverticeshr(KDE.Surface, lev = UDLev)	
+KDE.Sp <- adehabitatHR::getverticeshr(KDE.Surface, percent = UDLev,unin = "m", unout = "km2")	## syntax differs from older version
 
     UIDs <- names(which(table(DataGroup$ID)>5))
     KDE.Sp@proj4string <- DgProj
