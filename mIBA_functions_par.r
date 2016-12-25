@@ -230,7 +230,7 @@ scaleARS <- function(DataGroup, Scales = c(seq(1, 25, 1), seq(30, 50, 5), 75, se
   require(sp)
   require(rgdal)
   require(rgeos)
-  require(adehabitat)
+  require(adehabitatLT)     ### updated to avoid loading deprecated adehabitat - NEED TO CHECK FUNCTIONALITY
 
   if(!"Latitude" %in% names(DataGroup)) stop("Latitude field does not exist")
   if(!"Longitude" %in% names(DataGroup)) stop("Longitude field does not exist")
@@ -532,7 +532,7 @@ bootstrap <- function(DataGroup, Scale=100, Iteration=50)
   require(sp)
   require(geosphere)
   require(rgdal)
-  require(adehabitat)
+  require(adehabitatHR)   #### NEED TO FIX
   require(foreach)
   require(doParallel)
   require(parallel)
