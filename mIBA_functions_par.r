@@ -36,6 +36,7 @@ tripSplit <- function(Track, Colony, InnerBuff = 15, ReturnBuff = 45, Duration =
   require(sp)
   require(maps)
   require(mapdata)
+  require(maptools)
   require(rgdal)
 
   if(class(Track) != "SpatialPointsDataFrame")
