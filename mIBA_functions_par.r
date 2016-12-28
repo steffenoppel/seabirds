@@ -571,7 +571,7 @@ cl<-makeCluster(detectCores())
 registerDoParallel(cl)
 Result<-data.frame()
 
-Result <- foreach(LoopN=LoopNr, .combine = rbind, .packages=c("sp","adehabitat","geosphere","rgdal")) %dopar% {
+Result <- foreach(LoopN=LoopNr, .combine = rbind, .packages=c("sp","adehabitatHR","geosphere","rgdal")) %dopar% {
 
     N<-DoubleLoop$SampleSize[LoopN]
     i<-DoubleLoop$Iteration[LoopN]
