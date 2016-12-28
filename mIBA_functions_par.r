@@ -593,7 +593,7 @@ Result <- foreach(LoopN=LoopNr, .combine = rbind, .packages=c("sp","adehabitat",
       KDE.UD <- getverticeshr(KDE.Surface, percent = UDLev,unin = "m", unout = "km2")			## syntax differs from older version
       #KDE.Spl <- kver2spol(KDE.UD)     ## deprecated, newer function would be khr2estUDm, but not required
       #KDE.Spl@proj4string <- DgProj    ## no longer necessary after update to adehabitatHR
-      Overlain <- over(NotSelected, KDE.Spl)
+      Overlain <- over(NotSelected, KDE.UD)   ## changed from KDE.Spl
       Output$InclusionMean <- length(which(!is.na(Overlain$area)))/nrow(NotSelected)  ## updated because overlay will not yield predictable number
     return(Output)
     }
