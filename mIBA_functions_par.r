@@ -168,7 +168,7 @@ for (i in as.numeric(unique(trip_distances$trip))){
 x<-Trips@data[Trips@data$trip_id==i,]
 maxdist<-cbind(x$Longitude[x$ColDist==max(x$ColDist)],x$Latitude[x$ColDist==max(x$ColDist)])	
 if(dim(maxdist)[1]>1){maxdist<-maxdist[1,]}
-trip_distances[trip_distances$trip==i,2]<-max(Trips@data$ColDist[Trips@data$trip_id==i,])/1000
+trip_distances[trip_distances$trip==i,2]<-max(Trips@data$ColDist[Trips@data$trip_id==i])/1000
 trip_distances[trip_distances$trip==i,3]<-(max(Trips@data$TrackTime[Trips@data$trip_id==i])-min(Trips@data$TrackTime[Trips@data$trip_id==i]))/3600
 
 
