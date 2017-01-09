@@ -146,6 +146,7 @@ if(MidPoint == FALSE)
 ## Colony must be a DataFrame with Latitudes and Longitudes
 #### IF nests=TRUE, Colony must be a DataFrame with ID (the same ID as in Trips), Latitudes and Longitudes
 ### modified 27 December 2016 to make function more robust to different data frame structure
+### updated 9 January 2017 to allow non-numeric trip ID
 
 
 require(geosphere)
@@ -160,11 +161,11 @@ tripSummary <- function(Trips, Colony=Colony, nests=FALSE)
 
 ### SUMMARISE MAX DIST FROM COLONY AND TRIP TRAVELLING TIME FOR EACH TRIP
 
-trip_distances<-data.frame(trip=as.numeric(unique(Trips@data$trip_id)), max_dist=0, duration=0, total_dist=0)
-trip_distances<-trip_distances[trip_distances$trip>0,]	
+trip_distances<-data.frame(trip=unique(Trips@data$trip_id), max_dist=0, duration=0, total_dist=0)			### removed as.numeric as this only works with numeric ID
+trip_distances<-trip_distances[!(trip_distances$trip==-1),]			### removed as.numeric as this only works with numeric ID
 trip_distances$ID<-Trips@data$ID[match(trip_distances$trip, Trips@data$trip_id)]
 
-for (i in as.numeric(unique(trip_distances$trip))){
+for (i in unique(trip_distances$trip)){			### removed as.numeric as this only works with numeric ID
 x<-Trips@data[Trips@data$trip_id==i,]
 maxdist<-cbind(x$Longitude[x$ColDist==max(x$ColDist)],x$Latitude[x$ColDist==max(x$ColDist)])	
 if(dim(maxdist)[1]>1){maxdist<-maxdist[1,]}
