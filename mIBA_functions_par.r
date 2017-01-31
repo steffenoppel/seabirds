@@ -340,6 +340,7 @@ scaleARS <- function(DataGroup, Scales = c(seq(1, 25, 1), seq(30, 50, 5), 75, se
     
 ## UPDATED BY STEFFEN OPPEL ON 16 Dec 2016 to fix orphaned holes in output geometry
 ## UPDATED BY STEFFEN OPPEL ON 23 Dec 2016 to switch to adehabitatHR
+## UPDATED BY ANA CARNEIRO AND STEFFEN OPPEL 31 JAN 2017 to same4all=T
 
 
 batchUD <- function(DataGroup, Scale = 50, UDLev = 50)
@@ -374,8 +375,10 @@ batchUD <- function(DataGroup, Scale = 50, UDLev = 50)
     Ext <- (min(coordinates(TripCoords)[,1]) + 3 * diff(range(coordinates(TripCoords)[,1])))
     if(Ext < (Scale * 1000 * 2)) {BExt <- ceiling((Scale * 1000 * 3)/(diff(range(coordinates(TripCoords)[,1]))))} else {BExt <- 5} #changed from 3 to 5 on 23 Dec 2016 to avoid 'too small extent' error
 
-KDE.Surface <- adehabitatHR::kernelUD(TripCoords, h=(Scale * 1000), grid=1000, extent=BExt, same4all=FALSE)		## newer version needs SpatialPoints object and id no longer required in adehabitatHR, also removed 'extent' as it caused problems
-KDE.Sp <- adehabitatHR::getverticeshr(KDE.Surface, percent = UDLev,unin = "m", unout = "km2")	## syntax differs from older version
+    ### NEED TO EXPLORE: CREATE CUSTOM GRID TO feed into kernelUD (instead of same4all=T)  
+      
+KDE.Surface <- adehabitatHR::kernelUD(TripCoords, h=(Scale * 1000), grid=1000, extent=BExt, same4all=TRUE)		## newer version needs SpatialPoints object and id no longer required in adehabitatHR, also removed 'extent' as it caused problems
+KDE.Sp <- adehabitatHR::getverticeshr(KDE.Surface, percent = UDLev,unin = "m", unout = "km2")	## syntax differs from older version; THIS FUNCTION CAN FAIL WHEN same4all=FALSE
 
     UIDs <- names(which(table(DataGroup$ID)>5))
     KDE.Sp@proj4string <- DgProj
