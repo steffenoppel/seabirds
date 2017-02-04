@@ -535,6 +535,7 @@ varianceTest <- function(Polys, DID, Iteration=100)
     
 ## REVISED BY Steffen Oppel in 2015 to facilitate parallel processing
 ## updated to adehabitatHR by Steffen Oppel on 27 Dec 2016
+## changed to same4all=TRUE on 4 Feb 2017
 
 bootstrap <- function(DataGroup, Scale=100, Iteration=50)
   {
@@ -593,8 +594,8 @@ Result <- foreach(LoopN=LoopNr, .combine = rbind, .packages=c("sp","adehabitatHR
       if(Ext < (Scale * 1000 * 2)) {BExt <- ceiling((Scale * 1000 * 3)/(diff(range(Temp[,1]))))} else {BExt <- 3}
       Temp <- SpatialPoints(Temp,proj4string=DgProj)      ### added because adehabitatHR requires SpatialPoints object
 
-      KDE.Surface <- kernelUD(Temp, h=(Scale * 1000), grid=1000, extent=BExt, same4all=FALSE)		## newer version needs SpatialPoints object and id no longer required in adehabitatHR
-      KDE.UD <- getverticeshr(KDE.Surface, percent = UDLev,unin = "m", unout = "km2")			## syntax differs from older version
+      KDE.Surface <- adehabitatHR::kernelUD(Temp, h=(Scale * 1000), grid=1000, extent=BExt, same4all=TRUE)		## newer version needs SpatialPoints object and id no longer required in adehabitatHR
+      KDE.UD <- adehabitatHR::getverticeshr(KDE.Surface, percent = UDLev,unin = "m", unout = "km2")			## syntax differs from older version
       #KDE.Spl <- kver2spol(KDE.UD)     ## deprecated, newer function would be khr2estUDm, but not required
       #KDE.Spl@proj4string <- DgProj    ## no longer necessary after update to adehabitatHR
       Overlain <- over(NotSelected, KDE.UD)   ## changed from KDE.Spl
