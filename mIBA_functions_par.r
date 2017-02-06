@@ -591,11 +591,12 @@ Result <- foreach(LoopN=LoopNr, .combine = rbind, .packages=c("sp","adehabitatHR
       NotSelected <- DataGroup[!DataGroup$ID %in% RanNum,]
       Temp <- data.frame(SelectedCoords[,1], SelectedCoords[,2])
       Ext <- (min(Temp[,1]) + 3 * diff(range(Temp[,1])))
-      if(Ext < (Scale * 1000 * 2)) {BExt <- ceiling((Scale * 1000 * 3)/(diff(range(Temp[,1]))))} else {BExt <- 3}
+      if(Ext < (Scale * 1000 * 2)) {BExt <- ceiling((Scale * 1000 * 3)/(diff(range(Temp[,1]))))} else {BExt <- 5}
       Temp <- SpatialPoints(Temp,proj4string=DgProj)      ### added because adehabitatHR requires SpatialPoints object
 
       KDE.Surface <- adehabitatHR::kernelUD(Temp, h=(Scale * 1000), grid=1000, extent=BExt, same4all=TRUE)		## newer version needs SpatialPoints object and id no longer required in adehabitatHR
-      KDE.UD <- adehabitatHR::getverticeshr(KDE.Surface, percent = UDLev,unin = "m", unout = "km2")			## syntax differs from older version
+    try(      ## inserted to avoid function failing if one iteration in bootstrap has crazy extent
+      KDE.UD <- adehabitatHR::getverticeshr(KDE.Surface, percent = UDLev,unin = "m", unout = "km2"), silent = TRUE)			## syntax differs from older version 
       #KDE.Spl <- kver2spol(KDE.UD)     ## deprecated, newer function would be khr2estUDm, but not required
       #KDE.Spl@proj4string <- DgProj    ## no longer necessary after update to adehabitatHR
       Overlain <- over(NotSelected, KDE.UD)   ## changed from KDE.Spl
