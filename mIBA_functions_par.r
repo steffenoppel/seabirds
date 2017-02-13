@@ -536,6 +536,9 @@ varianceTest <- function(Polys, DID, Iteration=100)
 ## REVISED BY Steffen Oppel in 2015 to facilitate parallel processing
 ## updated to adehabitatHR by Steffen Oppel on 27 Dec 2016
 ## changed to same4all=TRUE on 4 Feb 2017
+    
+## REVISED in 2017 to avoid error in nls function of singular gradient
+## added mean output for inclusion value even if nls fails
 
 bootstrap <- function(DataGroup, Scale=100, Iteration=50)
   {
@@ -610,7 +613,8 @@ stopCluster(cl)
   par(mfrow=c(1,1), mai=c(1,1,1,1))
   #Result <- Output[1:nrow(Output)-1,]
   write.table(Result,"bootout_temp.csv", row.names=F, sep=",")
-  M1 <- nls((Result$InclusionMean ~ (a*Result$SampleSize)/(1+b*Result$SampleSize)), data=Result, start=list(a=1,b=0.1))
+  try(M1 <- nls((Result$InclusionMean ~ (a*Result$SampleSize)/(1+b*Result$SampleSize)), data=Result, start=list(a=1,b=0.1)), silent = TRUE)
+ if ('M1' %in% ls()){       ### run this only if nls was successful
   PredData <- data.frame(SampleSize = unique(Result$SampleSize))
   Result$pred<-predict(M1)
   P2 <- aggregate(pred~SampleSize, Result, FUN=mean)
@@ -625,6 +629,7 @@ stopCluster(cl)
   RepresentativeValue <- max(P2$pred)/Asymptote*100
   print(RepresentativeValue)
   text(x=0, y=1,paste(round(RepresentativeValue,2), "%", sep=""), cex=2, col="gray45", adj=0)
+}else{RepresentativeValue <- mean(Result$InclusionMean[Result$SampleSize==(Ntrips-1)])}   ### if nls is unsuccessful then use mean output for largest sample size
   Result$RepresentativeValue <- RepresentativeValue
   return(Result)
   }
