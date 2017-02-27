@@ -368,11 +368,13 @@ batchUD <- function(DataGroup, Scale = 50, UDLev = 50)
     DataGroup$Y <- DataGroup@coords[,2]
       
       
-      ###### ENSURE THAT ONLY TRACKS WITH 10 OR MORE LOCATIONS ARE RETAINED (added 27 Feb 2017) ####
-      DataGroup@data$count<-1
-      nlocs<-aggregate(count~ID,DataGroup@data,sum)
-      retain<-as.character(nlocs$ID[nlocs$count>9])           ### kernelUD will fail for any ID with <5 locations
-      DataGroup<-DataGroup[(DataGroup@data$ID %in% retain),]
+      ###### ENSURE THAT ONLY TRACKS WITH 5 OR MORE LOCATIONS ARE RETAINED (added 27 Feb 2017) ####
+      UIDs <- names(which(table(DataGroup$ID)>5))             ### previous implementation restored
+      #DataGroup@data$count<-1
+      #nlocs<-aggregate(count~ID,DataGroup@data,sum)
+      #retain<-as.character(nlocs$ID[nlocs$count>5])           ### kernelUD will fail for any ID with <5 locations
+      DataGroup<-DataGroup[(DataGroup@data$ID %in% UIDs),]
+      DataGroup@data$ID<-droplevels(DataGroup@data$ID)        ### encountered weird error when unused levels were retained (27 Feb 2017)
 
     UIDs <- unique(DataGroup$ID)
     #note<-0          removed loop to check whether >5 data points exist per trip - considered unnecessary
@@ -387,7 +389,7 @@ batchUD <- function(DataGroup, Scale = 50, UDLev = 50)
 KDE.Surface <- adehabitatHR::kernelUD(TripCoords, h=(Scale * 1000), grid=1000, extent=BExt, same4all=TRUE)		## newer version needs SpatialPoints object and id no longer required in adehabitatHR, also removed 'extent' as it caused problems
 KDE.Sp <- adehabitatHR::getverticeshr(KDE.Surface, percent = UDLev,unin = "m", unout = "km2")	## syntax differs from older version; THIS FUNCTION CAN FAIL WHEN same4all=FALSE
 
-    UIDs <- names(which(table(DataGroup$ID)>5))
+    
     KDE.Sp@proj4string <- DgProj
     KDE.Wgs <- spTransform(KDE.Sp, CRS=CRS("+proj=longlat +ellps=WGS84"))
     Tbl <- data.frame(Name_0 = rep(1, length(UIDs)), Name_1 = 1:length(UIDs), ID = UIDs)
