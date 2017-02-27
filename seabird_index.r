@@ -1,11 +1,15 @@
 
 ########## SEABIRD SPATIAL AGGREGATION INDEX  ######################################################################################################
 
+
+
 ## STEFFEN OPPEL 2016
 ## This function is based on the marine IBA 'polyCount' function (Lascelles et al. 2016)
 ## Modified to remove raster output and include polygons with no core ranges
 ## Added calculation and reporting of Morisita spatial aggregation index
 ## Requires input from 'batchUD' function, and a resolution (in degrees)
+
+
 
 spatInd <- function(Polys, Res = 0.1)
   {
@@ -60,6 +64,9 @@ return(report)
 ## Modified to use adehabitatHR and calculate overlap indices
 ## returns now a list with the SpatialPolygonsDataFrame and a data.frame with the overlap indices
 
+## updated in February 2017 to include EMD index (Kranstauber et al. 2017)
+## required smaller extent, grid, and specified threshold to avoid internal error 9
+
 
 batchUDOL <- function(DataGroup, Scale = 50, UDLev = 50)
     {
@@ -68,6 +75,8 @@ batchUDOL <- function(DataGroup, Scale = 50, UDLev = 50)
     require(rgdal)
     require(adehabitatHR)
     require(geosphere)
+    require(reshape)
+    require(move)
 
     if(!"Latitude" %in% names(DataGroup)) stop("Latitude field does not exist")
     if(!"Longitude" %in% names(DataGroup)) stop("Longitude field does not exist")
@@ -95,7 +104,7 @@ TripCoords@data$TrackTime<-NULL
 Ext <- (min(coordinates(TripCoords)[,1]) + 3 * diff(range(coordinates(TripCoords)[,1])))
 if(Ext < (Scale * 1000 * 2)) {BExt <- ceiling((Scale * 1000 * 3)/(diff(range(coordinates(TripCoords)[,1]))))} else {BExt <- 5}
 
-KDE.Surface <- adehabitatHR::kernelUD(TripCoords, h=(Scale * 1000), grid=1000, extent=BExt, same4all=FALSE)
+KDE.Surface <- adehabitatHR::kernelUD(TripCoords, h=(Scale * 1000), grid=1000, extent=BExt, same4all=T)			## NEEDS TO BE same4all=T otherwise overlap will produce rubbish output!
 KDE.Sp <- adehabitatHR::getverticeshr(KDE.Surface, percent = UDLev,unin = "m", unout = "km2")	
 
     UIDs <- names(which(table(DataGroup$ID)>5))
@@ -121,11 +130,12 @@ KDE.Sp <- adehabitatHR::getverticeshr(KDE.Surface, percent = UDLev,unin = "m", u
       
     #return(va90b)     ## R does not allow return of multiple objects, hence combined in list below
 
+
 ##### CALCULATE VARIOUS OVERLAP INDICES #####
 
 olInd<-data.frame(method=c("HR", "PHR", "VI", "BA", "UDOI", "HD"), mean_index=0, n_comps=0)
 for(ix in c("HR", "PHR", "VI", "BA", "UDOI", "HD")){
-OL1<-adehabitatHR::kerneloverlaphr(KDE.Surface, method = ix,percent= UDLev, conditional = FALSE)
+OL1<-adehabitatHR::kerneloverlaphr(KDE.Surface, method = ix,percent= UDLev, conditional = FALSE)		### set conditional=T will make overlap smaller because it sets everything to 0 outside overlap zone
 
 ## CALCULATE MEAN BUT REMOVE DIAGONAL
 #str(OL1)
@@ -134,6 +144,32 @@ OL1<-OL1[!(OL1$X1==OL1$X2),]
 olInd$mean_index[olInd$method==ix]<-median(OL1$value)		## mean gives crazy values because occasionally index is >100
 olInd$n_comps[olInd$method==ix]<-dim(OL1)[1]
 }
+
+
+##### CALCULATE EARTH MOVERS DISTANCE INDEX #####
+#KDE.Small <- adehabitatHR::kernelUD(TripCoords, h=(Scale * 1000), grid=100, same4all=T)	## REDUCED GRID TO LIMIT COMPUTATION TIME
+#udspdf <- estUDm2spixdf(KDE.Small)
+#all<-stack(udspdf)
+emdthresh<-sqrt((diff(range(coordinates(TripCoords)[,1]))^2)+(diff(range(coordinates(TripCoords)[,2]))^2))	## needed to avoid internal error 9
+#emdout<-emd(all, threshold=emdthresh)
+
+
+
+for (gr in c(100,75,50,25,20)){
+rm(emdout)
+KDE.Small <- adehabitatHR::kernelUD(TripCoords, h=(Scale * 1000), grid=gr, same4all=T)	## REDUCED GRID TO LIMIT COMPUTATION TIME
+udspdf <- estUDm2spixdf(KDE.Small)
+all<-stack(udspdf)
+withTimeout({try(emdout<-emd(all, threshold=emdthresh), silent=T)}, timeout=500, onTimeout="silent")
+if('emdout' %in% ls()){break}
+}
+print(paste(sprintf("EMD succeed on grid %s",gr)))
+add<-data.frame(method=c("EMD"), mean_index=mean(emdout), n_comps=length(emdout))
+olInd<-rbind(olInd,add)
+rm(gr,emdout)
+
+
+
 
 ####
 outlist<-list("UDpolygons"=va90b,"OverlapIndex"=olInd)
