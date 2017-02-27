@@ -366,6 +366,13 @@ batchUD <- function(DataGroup, Scale = 50, UDLev = 50)
 
     DataGroup$X <- DataGroup@coords[,1]
     DataGroup$Y <- DataGroup@coords[,2]
+      
+      
+      ###### ENSURE THAT ONLY TRACKS WITH 10 OR MORE LOCATIONS ARE RETAINED (added 27 Feb 2017) ####
+      DataGroup@data$count<-1
+      nlocs<-aggregate(count~ID,DataGroup@data,sum)
+      retain<-as.character(nlocs$ID[nlocs$count>9])           ### kernelUD will fail for any ID with <5 locations
+      DataGroup<-DataGroup[(DataGroup@data$ID %in% retain),]
 
     UIDs <- unique(DataGroup$ID)
     #note<-0          removed loop to check whether >5 data points exist per trip - considered unnecessary
