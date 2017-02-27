@@ -42,7 +42,7 @@ tripSplit <- function(Track, Colony, InnerBuff = 15, ReturnBuff = 45, Duration =
   if(class(Track) != "SpatialPointsDataFrame")
     {
     Track.Wgs <- SpatialPoints(data.frame(Track$Longitude, Track$Latitude), proj4string=CRS("+proj=longlat + datum=WGS84"))
-    Track.Projected <- spTransform(Track.Wgs, CRS=CRS(paste("+proj=laea +lon_0=", Colony$Longitude, " +lat_0=", Colony$Latitude, sep="")))
+    Track.Projected <- spTransform(Track.Wgs, CRS=CRS(paste("+proj=laea +lon_0=", Colony$Longitude[1], " +lat_0=", Colony$Latitude[1], sep="")))
     Track <- SpatialPointsDataFrame(Track.Projected, data = Track)
     }
 
