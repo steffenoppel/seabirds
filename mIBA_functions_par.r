@@ -723,7 +723,7 @@ polyCount <- function(Polys, Res = 0.1)
   SpGridProj@data$Prop <- Prop
   SpGridOUT <- spTransform(SpGridProj, CRS=CRS("+proj=longlat +ellps=WGS84"))   ### show output in WGS84
   SGExtent <- extent(SpGridOUT)
-  RT <- raster(SGExtent, as.double(NCol), as.double(NRow))
+  RT <- raster(SGExtent, ncols=as.double(NCol), nrows=as.double(NRow))
   WgsRas <- (rasterize(x=SpGridOUT,y=RT, field = "Prop"))
 
   plot(WgsRas, asp=1)
