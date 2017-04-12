@@ -38,6 +38,7 @@ tripSplit <- function(Track, Colony, InnerBuff = 15, ReturnBuff = 45, Duration =
   require(mapdata)
   require(maptools)
   require(rgdal)
+    require(geosphere)
 
   if(class(Track) != "SpatialPointsDataFrame")
     {
@@ -61,7 +62,7 @@ if(MidPoint == FALSE)
     Colony.Projected <- spTransform(Colony.Wgs, CRS=CRS(paste("+proj=laea +lon_0=", Colony$Longitude, " +lat_0=", Colony$Latitude, sep="")))
     } else
     {
-   mid_point<-data.frame(centroid(cbind(DataGroup$Longitude, DataGroup$Latitude)))
+   mid_point<-data.frame(centroid(cbind(Track$Longitude, Track$Latitude)))
     Colony.Wgs <- SpatialPoints(data.frame(Colony$Longitude, Colony$Latitude), proj4string=CRS("+proj=longlat + datum=WGS84"))
     Colony.Projected <- spTransform(Colony.Wgs, CRS=CRS(paste("+proj=laea +lon_0=", mid_point$lon, " +lat_0=", mid_point$lat, sep="")))
     Track <- spTransform(Track, CRS=CRS(paste("+proj=laea +lon_0=", mid_point$lon, " +lat_0=", mid_point$lat, sep="")))### Transform DataGroup too.
