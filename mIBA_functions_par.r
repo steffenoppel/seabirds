@@ -374,7 +374,7 @@ batchUD <- function(DataGroup, Scale = 50, UDLev = 50)
       #nlocs<-aggregate(count~ID,DataGroup@data,sum)
       #retain<-as.character(nlocs$ID[nlocs$count>5])           ### kernelUD will fail for any ID with <5 locations
       DataGroup<-DataGroup[(DataGroup@data$ID %in% UIDs),]
-      DataGroup@data$ID<-droplevels(DataGroup@data$ID)        ### encountered weird error when unused levels were retained (27 Feb 2017)
+      DataGroup@data$ID<-droplevels(as.factor(DataGroup@data$ID))        ### encountered weird error when unused levels were retained (27 Feb 2017)
 
     UIDs <- unique(DataGroup$ID)
     #note<-0          removed loop to check whether >5 data points exist per trip - considered unnecessary
