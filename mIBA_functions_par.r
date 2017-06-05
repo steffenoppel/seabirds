@@ -59,8 +59,9 @@ if(nests == TRUE)
 if(MidPoint == FALSE)
     {
     Colony.Wgs <- SpatialPoints(data.frame(Colony$Longitude, Colony$Latitude), proj4string=CRS("+proj=longlat + datum=WGS84"))
-    Colony.Projected <- spTransform(Colony.Wgs, CRS=CRS(paste("+proj=laea +lon_0=", Colony$Longitude, " +lat_0=", Colony$Latitude, sep="")))
-    } else
+    #Colony.Projected <- spTransform(Colony.Wgs, CRS=CRS(paste("+proj=laea +lon_0=", Colony$Longitude, " +lat_0=", Colony$Latitude, sep="")))
+    Colony.Projected <- spTransform(Colony.Wgs, CRS=CRS(proj4string(Track)))    ### added 5 June 2017 because midpoint caused problems
+        } else
     {
    mid_point<-data.frame(centroid(cbind(Track$Longitude, Track$Latitude)))
     Colony.Wgs <- SpatialPoints(data.frame(Colony$Longitude, Colony$Latitude), proj4string=CRS("+proj=longlat + datum=WGS84"))
