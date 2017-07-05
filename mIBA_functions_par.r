@@ -255,6 +255,9 @@ scaleARS <- function(DataGroup, Scales = c(seq(1, 25, 1), seq(30, 50, 5), 75, se
 
   DataGroup$X <- DataGroup@coords[,1]
   DataGroup$Y <- DataGroup@coords[,2]
+  #DataGroup@data$ID <- as.numeric(as.character(DataGroup@data$ID))
+  if(is.factor(DataGroup@data$ID)==T){DataGroup@data$ID <- droplevels(DataGroup@data$ID)} 		## avoids the error 'some id's are not present' in as.ltraj
+
 
 
   DataGrouplt <- as.ltraj(data.frame(DataGroup$X, DataGroup$Y), date=as.POSIXct(DataGroup$TrackTime, origin="1970/01/01", tz="GMT"), id=DataGroup$ID, typeII = TRUE)
