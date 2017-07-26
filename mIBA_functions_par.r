@@ -20,7 +20,7 @@
 ## if MidPoint = TRUE the calculations will be done projected on the data's centroid.
 
 
-tripSplit <- function(Track, Colony, InnerBuff = 15, ReturnBuff = 45, Duration = 12, plotit = TRUE, MidPoint = FALSE, nests=FALSE)
+tripSplit <- function(Track, Colony, InnerBuff = 15, ReturnBuff = 45, Duration = 12, plotit = FALSE, MidPoint = FALSE, nests=FALSE)
   {
 
   if(!"Latitude" %in% names(Track)) stop("Latitude field does not exist")
@@ -110,7 +110,7 @@ if(MidPoint == FALSE)
        }
        }
       k <- k + 1
-      points(Track[k,], col=2, pch=16, cex=0.5)
+      if(plotit == TRUE){points(Track[k,], col=2, pch=16, cex=0.5)}
       Dist <- Track$ColDist[k]
       }
     Time.Diff <- (Track$TrackTime[k] - Track$TrackTime[i]) / 3600
@@ -128,7 +128,7 @@ if(MidPoint == FALSE)
     print(paste(Track$ID[1], Trip.Sequence, sep=""))
     }
     }
-    points(Track, pch=16, cex=0.75, col=as.factor(Track$trip_id))
+    if(plotit == TRUE){points(Track, pch=16, cex=0.75, col=as.factor(Track$trip_id))}
     return(Track)
   }
 
