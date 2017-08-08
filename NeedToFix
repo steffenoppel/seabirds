@@ -1,0 +1,7 @@
+In the batchUD function, there are frequent errors due to the 'grid too small'. This is a misnomer, because usually the grid is not too small, but the grid CELL SIZE is too small, so increasing grid from 100 to 1000 makes things worse.
+To fix it we should reduce the extent.
+
+These lines need to be fixed and tested against all possible datasets:
+
+Ext <- (min(coordinates(TripCoords)[,1]) + 3 * diff(range(coordinates(TripCoords)[,1])))
+if(Ext < (Scale * 1000 * 2)) {BExt <- ceiling((Scale * 1000 * 3)/(diff(range(coordinates(TripCoords)[,1]))))} else {BExt <- 5}
