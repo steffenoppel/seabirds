@@ -48,8 +48,8 @@ spatInd <- function(Polys, Res = 0.1)
   RT <- raster(SpGridProj, ncols=as.double(NCol), nrows=as.double(NRow), vals=Prop)
 	
 	IBAarea10<-length(Prop[Prop>0.1])*(res(RT)[1]/1000)*(res(RT)[2]/1000)		    ### IBA area with >10% of tracked pop 
-	IBAarea125<-length(Prop[Prop>0.125])*(res(RT)[1]/1000)*(res(RT)[2]/1000)		   ### IBA area with >10% of tracked pop
-	IBAarea20<-length(Prop[Prop>0.2])*(res(RT)[1]/1000)*(res(RT)[2]/1000)		    ### IBA area with >10% of tracked pop 
+	IBAarea125<-length(Prop[Prop>0.125])*(res(RT)[1]/1000)*(res(RT)[2]/1000)		   ### IBA area with >12.5% of tracked pop
+	IBAarea20<-length(Prop[Prop>0.2])*(res(RT)[1]/1000)*(res(RT)[2]/1000)		    ### IBA area with >20% of tracked pop 
 
 Cells <- rasterToPolygons(RT)
 IBAcells<-Cells[Cells@data$layer>0.1,]
@@ -64,6 +64,14 @@ if(dim(coordinates(IBAcells))[1]>4){
 mcp20<-as.numeric(mcp.area(SpatialPoints(coordinates(IBAcells)), percent = 100,unin = "m",unout = "km2", plotit = FALSE))}else{mcp20<-IBAarea20}
 
 report<-data.frame(Scale=Res,extent=length(Count),E_W=NCol,N_S=NRow, IBA10=IBAarea10,IBA125=IBAarea125,IBA20=IBAarea20,MCP10=mcp10,MCP125=mcp125,MCP20=mcp20)
+
+	#### CALCULATE STATISTICS FOR SPATIAL AGGREGATION ####
+index<- as.numeric(dispindmorisita(Count))
+report$Morisita<- index[1]
+report$mclu<- index[2]
+report$muni<- index[3]
+report$imst<- index[4]
+report$pchisq<- index[5]
 
 return(report)
 
@@ -84,7 +92,7 @@ return(report)
 ## updated in MARCH 2017 to remove EMD index but include bootstrap functionality
 
 
-batchUDOL <- function(DataGroup, Scale = 50, UDLev = 50)
+batchUDOL <- function(DataGroup, Scale = 10, UDLev = 50)
     {
     require(sp)
     require(maptools)
@@ -129,13 +137,24 @@ try(KDE.Sp <- adehabitatHR::getverticeshr(KDE.Surface, percent = UDLev,unin = "m
 
 
 ##### IF GETVERTICES FAILED REPEAT UNTIL GRID IS LARGE ENOUGH ###
+### this is very time consuming
+### problem may occur from PTT data with very few locations in original data set
+### interpolated data are all regularly spaced so kernels are impossible - need to find a way to exclude such 'tracks'
+
 if(!('KDE.Sp' %in% ls())){
-KDE.Surface <- adehabitatHR::kernelUD(TripCoords, h=(Scale * 1000), grid=2000, extent=BExt, same4all=T)			## NEEDS TO BE same4all=T otherwise overlap will produce rubbish output!
+KDE.Surface <- adehabitatHR::kernelUD(TripCoords, h=(Scale * 1000), grid=1000, extent=0.2, same4all=T)			## NEEDS TO BE same4all=T otherwise overlap will produce rubbish output!
 try(KDE.Sp <- adehabitatHR::getverticeshr(KDE.Surface, percent = UDLev,unin = "m", unout = "km2"), silent=T)
 }
 
+
 if(!('KDE.Sp' %in% ls())){
-KDE.Surface <- adehabitatHR::kernelUD(TripCoords, h=(Scale * 1000), grid=5000, extent=BExt, same4all=T)			## NEEDS TO BE same4all=T otherwise overlap will produce rubbish output!
+KDE.Surface <- adehabitatHR::kernelUD(TripCoords, h=(Scale * 1000), grid=500, extent=0.2, same4all=T)			## NEEDS TO BE same4all=T otherwise overlap will produce rubbish output!
+try(KDE.Sp <- adehabitatHR::getverticeshr(KDE.Surface, percent = UDLev,unin = "m", unout = "km2"), silent=T)
+}
+
+
+if(!('KDE.Sp' %in% ls())){
+KDE.Surface <- adehabitatHR::kernelUD(TripCoords, h=(Scale * 1000), grid=2000, extent=1.2, same4all=T)			## NEEDS TO BE same4all=T otherwise overlap will produce rubbish output!
 try(KDE.Sp <- adehabitatHR::getverticeshr(KDE.Surface, percent = UDLev,unin = "m", unout = "km2"), silent=T)
 }
 	
@@ -147,7 +166,7 @@ try(KDE.Sp <- adehabitatHR::getverticeshr(KDE.Surface, percent = UDLev,unin = "m
     row.names(Tbl) <- UIDs
     KDE.Spdf <- SpatialPolygonsDataFrame(KDE.Sp, data=Tbl)
 
-    plot(KDE.Spdf, border=factor(UIDs))
+    #plot(KDE.Spdf, border=factor(UIDs))
       
 ##### OVERLAYS IN THE polyCount FUNCTION WILL NOT WORK IF THE POLYGONS CONTAIN HOLES OR ARE ORPHANED
       ## simple fix to remove holes from polygon object
@@ -172,12 +191,13 @@ OL1<-adehabitatHR::kerneloverlaphr(KDE.Surface, method = "BA",percent= UDLev, co
 OL1<-as.data.frame(melt(OL1))
 OL1<-OL1[!(OL1$X1==OL1$X2),]
 olInd<-median(OL1$value)		## mean gives crazy values because occasionally index is >100
-rm(KDE.Sp)
 
 ####
 outlist<-list("UDpolygons"=va90b,"OverlapIndex"=olInd)
-return(outlist)
+rm(KDE.Sp,va90b,olInd,OL1,va90a,KDE.Surface,TripCoords,DataGroup,DataGroup.Projected,KDE.Wgs,Tbl,KDE.Spdf,vaSP)
+gc(verbose = F)
 
+return(outlist)
 
     }
 
