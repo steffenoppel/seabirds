@@ -733,7 +733,7 @@ polyCount <- function(Polys, Res = 0.1)
   WgsRas <- (rasterize(x=SpGridOUT,y=RT, field = "Prop"))
 
   plot(WgsRas, asp=1)
-  map("world", add=T, fill=T, col="darkolivegreen3")
+  maps::map("world", add=T, fill=T, col="darkolivegreen3")      ## to avoid conflict with purrr
   projection(WgsRas) <- CRS("+proj=longlat + datum=wgs84")
   return(WgsRas)
   }
@@ -766,7 +766,7 @@ thresholdRaster <- function(CountRas, Threshold = 10)
     Threshold <- Threshold/100
     RasSites <- CountRas >= Threshold
     plot(RasSites, asp=1, col=rev(heat.colors(25)))
-    map("world", add=T, fill=T, col="darkolivegreen3")
+    maps::map("world", add=T, fill=T, col="darkolivegreen3")      ### to avoid conflict with purrr
 
     if(length(which(getValues(CountRas) > Threshold)) < 1)
       {
