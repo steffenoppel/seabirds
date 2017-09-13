@@ -762,7 +762,7 @@ thresholdRaster <- function(CountRas, Threshold = 10)
     require(geosphere)
 
     plot(CountRas, asp=1)
-    map("world", add=T, fill=T, col="darkolivegreen3")
+    maps::map("world", add=T, fill=T, col="darkolivegreen3")
     Threshold <- Threshold/100
     RasSites <- CountRas >= Threshold
     plot(RasSites, asp=1, col=rev(heat.colors(25)))
@@ -782,7 +782,7 @@ thresholdRaster <- function(CountRas, Threshold = 10)
     Sites <- dissolve(Cells)
     ifelse(DateLine == TRUE, projection(Sites) <- DgProj, projection(Sites) <- "+proj=longlat + datum=wgs84")
     Sites <- spTransform(Sites, CRS=CRS("+proj=longlat + datum=wgs84"))
-    SiteTable <- data.frame(SiteID = names(Sites), MaxPerc = round(extract(CountRas, Sites, fun=max)*100,2))
+    SiteTable <- data.frame(SiteID = names(Sites), MaxPerc = round(raster::extract(CountRas, Sites, fun=max)*100,2))    ## to avoid conflict with tidyverse
     Sites <- SpatialPolygonsDataFrame(Sites, data=SiteTable)
     print(SiteTable)
     return(Sites)
