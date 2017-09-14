@@ -309,7 +309,7 @@ scaleARS <- function(DataGroup, Scales = c(seq(1, 25, 1), seq(30, 50, 5), 75, se
     #readline("proceed?")
     }
 
-  AprScale <- mean(ars.scales)
+  AprScale <- mean(ars.scales)            ### changed from mean to median to make output less susceptible to choice of input scales
   AprScale <- round(AprScale/1000,3)
   plot((Scales/1000), Temp, type="l", ylim=c(0, max(fpt.scales, na.rm=T)), xlab="Scales (km)", ylab="")
   for(i in 1:length(UIDs))
