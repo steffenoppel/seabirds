@@ -5,3 +5,8 @@ These lines need to be fixed and tested against all possible datasets:
 
 Ext <- (min(coordinates(TripCoords)[,1]) + 3 * diff(range(coordinates(TripCoords)[,1])))
 if(Ext < (Scale * 1000 * 2)) {BExt <- ceiling((Scale * 1000 * 3)/(diff(range(coordinates(TripCoords)[,1]))))} else {BExt <- 5}
+
+
+
+
+In the tripSplit function, the number of trips that are returned depends enormously on the Return Buffer - more guidance needed on what this actually means
