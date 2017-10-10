@@ -775,11 +775,12 @@ thresholdRaster <- function(CountRas, Threshold = 10)
       stop("No cells were above the threshold value")
       }
 
-    Cells <- rasterToPolygons(CountRas, fun=function(x) {x>Threshold})
+    #Cells <- rasterToPolygons(CountRas, fun=function(x) {x>Threshold})
+    Cells <- rasterToPolygons(clump(CountRas>Threshold), dissolve=TRUE)   ## suggested by Ian Cleasby, as more efficient
     DateLine <- Cells@bbox[1,1] < -178 & Cells@bbox[1,2] > 178
     if(DateLine == TRUE)    {Cells <- spTransform(Cells, CRS=DgProj)}
 
-    Sites <- dissolve(Cells)
+    Sites <- Cells                                                        ## removed based on suggestion from Ian Cleasby: dissolve(Cells)
     ifelse(DateLine == TRUE, projection(Sites) <- DgProj, projection(Sites) <- "+proj=longlat + datum=wgs84")
     Sites <- spTransform(Sites, CRS=CRS("+proj=longlat + datum=wgs84"))
     SiteTable <- data.frame(SiteID = names(Sites), MaxPerc = round(raster::extract(CountRas, Sites, fun=max)*100,2))    ## to avoid conflict with tidyverse
@@ -788,6 +789,7 @@ thresholdRaster <- function(CountRas, Threshold = 10)
     return(Sites)
     }
 
+##### THIS FUNCTION MAY NOT BE NECESSARY AS 'clump' and 'dissolve=T' in the 'RasterToPolygon' function can perform this calculation                                                                                                               
 dissolve <- function(Cells)
 {
 require(sp)
