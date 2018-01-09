@@ -187,8 +187,8 @@ x$Dist[p]<-distMeeus(p1,p2)/1000						### great circle distance according to Mee
 trip_distances[trip_distances$trip==i,4]<-sum(x$Dist)+(x$ColDist[p]/1000)				## total trip distance is the sum of all steps plus the dist from the nest of the last location
 
 
-trip_distances$departure[trip_distances$trip==i]<-format(min(x$DateTime),format="%Y-%d-%m %H:%M:%S") 	## departure time of trip
-trip_distances$return[trip_distances$trip==i]<-format(max(x$DateTime),format="%Y-%d-%m %H:%M:%S")		## return time of trip
+trip_distances$departure[trip_distances$trip==i]<-format(min(x$DateTime),format="%Y-%m-%d %H:%M:%S") 	## departure time of trip
+trip_distances$return[trip_distances$trip==i]<-format(max(x$DateTime),format="%Y-%m-%d %H:%M:%S")		## return time of trip
 trip_distances$n_locs[trip_distances$trip==i]<-dim(x)[1]		## number of locations per trip
 
 
