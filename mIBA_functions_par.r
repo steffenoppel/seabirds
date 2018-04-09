@@ -643,10 +643,16 @@ stopCluster(cl)
   Asymptote <- (summary(M1)$coefficients[1]/summary(M1)$coefficients[2])
   RepresentativeValue <- max(P2$pred)/Asymptote*100
   print(RepresentativeValue)
-  text(x=0, y=1,paste(round(RepresentativeValue,2), "%", sep=""), cex=2, col="gray45", adj=0)
-}else{RepresentativeValue <- mean(Result$InclusionMean[Result$SampleSize==(Ntrips-1)])}   ### if nls is unsuccessful then use mean output for largest sample size
   Result$RepresentativeValue <- RepresentativeValue
+  text(x=0, y=1,paste(round(RepresentativeValue,2), "%", sep=""), cex=2, col="gray45", adj=0)
+}else{RepresentativeValue <- mean(Result$InclusionMean[Result$SampleSize==max(Result$SampleSize)])   ### if nls is unsuccessful then use mean output for largest sample size
+  Result$RepresentativeValue <- (RepresentativeValue/(UDLev/100))*100}    ## added by Jono Handley to convert to same scale as nls output
+  
+  print(ifelse(exists("M1"),"nls (non linear regression) successful, asymptote estimated for bootstrap sample.",
+       "WARNING: nls (non linear regression) unsuccessful, likely due to 'singular gradient', which means there is no asymptote. Data may not be representative, output derived from mean inclusion value at highest sample size. Check bootstrap output csv file"))
+
   return(Result)
+  
   }
 
 
